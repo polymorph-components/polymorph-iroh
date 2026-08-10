@@ -1,0 +1,37 @@
+[workspace]
+
+[package]
+name = "ping-demo-guest"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Ping-demo guest: one upstream-iroh endpoint per page — frame ferry, stock iroh-blobs file transfer, and live migration onto a WebRTC data channel via the synthetic-address overlay"
+
+[dependencies]
+iroh = { version = "1.0", default-features = false, features = ["tls-ring"] }
+iroh-blobs = { version = "0.103.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+n0-future = "0.3"
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros", "time", "sync", "io-util", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Same wasi enablement patches as the iroh-relay-ws spike, from the
+# lann/iroh and lann/net-tools `polymorph-iroh` branches (see that
+# Cargo.toml for the full rationale). iroh-blobs depends on crates-io
+# iroh, so the substitution happens on the crates-io side; the branch's
+# path deps pull the patched iroh-relay and iroh-dns along, and
+# iroh-base is patched to the same branch so iroh and iroh-blobs share
+# one copy of its types.
+[patch.crates-io]
+iroh = { git = "https://github.com/lann/iroh.git", branch = "polymorph-iroh" }
+iroh-base = { git = "https://github.com/lann/iroh.git", branch = "polymorph-iroh" }
+noq = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+noq-proto = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+noq-udp = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+netwatch = { git = "https://github.com/lann/net-tools.git", branch = "polymorph-iroh" }
+
+[profile.release]
+lto = true
+opt-level = "s"

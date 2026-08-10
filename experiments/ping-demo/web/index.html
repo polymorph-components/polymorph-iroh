@@ -1,0 +1,140 @@
+<!doctype html>
+<!-- Ping demo: two browsers, one iroh connection — relay-bootstrapped,
+     live-migrated onto a WebRTC data channel (polymorph-iroh PR #25,
+     issue #26). Everything is same-origin and self-contained. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>iroh ping — polymorph components</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #ccc;
+        font: 14px/1.4 system-ui, sans-serif;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      #status {
+        position: fixed;
+        top: 8px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: #888;
+        pointer-events: none;
+      }
+      #view {
+        border-radius: 6px;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      #qrbox {
+        position: fixed;
+        inset: 0;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: rgba(0, 0, 0, 0.85);
+      }
+      #qr {
+        image-rendering: pixelated;
+        border-radius: 4px;
+      }
+      #link {
+        color: #6cf;
+        max-width: 90vw;
+        overflow-wrap: anywhere;
+        text-align: center;
+      }
+      #debug-toggle {
+        position: fixed;
+        bottom: 8px;
+        right: 8px;
+        width: 28px;
+        height: 28px;
+        border: 1px solid #444;
+        border-radius: 50%;
+        background: #111;
+        color: #888;
+        font: inherit;
+        cursor: pointer;
+      }
+      #send-file {
+        position: fixed;
+        bottom: 8px;
+        right: 44px;
+        width: 28px;
+        height: 28px;
+        border: 1px solid #444;
+        border-radius: 50%;
+        background: #111;
+        color: #888;
+        font: inherit;
+        cursor: pointer;
+      }
+      #transfers {
+        position: fixed;
+        top: 32px;
+        left: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-width: min(70vw, 380px);
+        font: 12px/1.5 ui-monospace, monospace;
+      }
+      .transfer {
+        padding: 4px 8px;
+        border: 1px solid #333;
+        border-radius: 4px;
+        background: rgba(10, 10, 10, 0.85);
+        color: #cc9;
+        overflow-wrap: anywhere;
+      }
+      .transfer a {
+        color: #6cf;
+        text-decoration: none;
+      }
+      #debug {
+        position: fixed;
+        bottom: 44px;
+        right: 8px;
+        display: none;
+        max-width: min(92vw, 620px);
+        padding: 8px 10px;
+        border: 1px solid #333;
+        border-radius: 6px;
+        background: rgba(10, 10, 10, 0.92);
+        color: #9c9;
+        font: 11px/1.5 ui-monospace, monospace;
+        white-space: pre;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">loading…</div>
+    <canvas id="view"></canvas>
+    <div id="qrbox">
+      <canvas id="qr"></canvas>
+      <a id="link" href="#" target="_blank" rel="noreferrer"></a>
+    </div>
+    <pre id="debug"></pre>
+    <div id="transfers"></div>
+    <input id="file" type="file" multiple hidden />
+    <button id="send-file" title="send a file">+</button>
+    <button id="debug-toggle" title="debug info">i</button>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>
