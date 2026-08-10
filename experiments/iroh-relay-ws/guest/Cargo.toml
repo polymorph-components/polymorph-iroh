@@ -1,0 +1,43 @@
+[workspace]
+
+[package]
+name = "iroh-relay-ws-guest"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Spike: upstream iroh (main, unmodified) on wasm32-wasip2 — relay over polymorph-websocket plus live migration onto WebRTC data channels via the synthetic-address overlay, all through the synthetic-datagram wake pattern"
+
+[dependencies]
+iroh = { git = "https://github.com/lann/iroh.git", branch = "polymorph-iroh", default-features = false, features = ["tls-ring"] }
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros", "time", "sync", "io-util", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The wasi enablement patches. Released versions lag upstream too far
+# (noq#773 merged but unreleased; netwatch restructured on main; iroh
+# main carries relay-path fixes), so everything comes from pinned git
+# sources:
+#
+# - iroh rides the lann/iroh `polymorph-iroh` branch: upstream main
+#   (735958f8) plus the wasi patch branches merged — lann/iroh#1
+#   (iroh-dns tolerates the missing system resolver config), #2 (relay
+#   connect() over the datagram pipe), #3 (net_report skips probes no
+#   wasi host can deliver). iroh's path deps pull the patched
+#   iroh-relay and iroh-dns from the same checkout.
+# - the noq family rides the rev carrying noq#773 (wasip2 support for
+#   noq-udp; released 1.1.1 was cut from a pre-merge base, and released
+#   noq requires noq-udp ^1.1.1, so the three must move together).
+# - netwatch rides the lann/net-tools `polymorph-iroh` branch: the
+#   netwatch-v0.19.1 tag (iroh main still requires ^0.19.1) plus the
+#   wasi patch branches merged — lann/net-tools#1 (wasi routes to the
+#   netdev-free posix_minimal branch), #2 (sockets close inline on
+#   drop; no spawn_blocking on wasi).
+[patch.crates-io]
+noq = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+noq-proto = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+noq-udp = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
+netwatch = { git = "https://github.com/lann/net-tools.git", branch = "polymorph-iroh" }
+
+[profile.release]
+lto = true
+opt-level = "s"
