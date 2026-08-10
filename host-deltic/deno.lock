@@ -571,27 +571,6 @@
     }
   },
   "remote": {
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/aead.ts": "b1a946ba15598b2ec1b402d2aa07506c23f442edb092dcbaecf856be5bb96e43",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/cipher.ts": "01560194d2ee2f6d62fd9c8aaa62f1fa665318e0005e19a57df7b9b87edefa13",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/derivation.ts": "74fd850b7f3d326ea83ea7ec20ba414d9684ebae9e63e3f0e5bf8d68677bf9c9",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/digest.ts": "42509e2d29387310e9630df0ed87010898d2eb04ebaabee574df1a819ff1747a",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/ec.ts": "578d4e873d0b270999f4bf8c0981c24a1a20f88fcf5f94eb9aa5ab225df8d9fa",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/ecdh.ts": "52aa4ff8b5de53b5e1b3ef11a58a127acfce5f8abcf47c4ac002b83ff64e9e72",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/ecdsa.ts": "d50ccb8c17c53bf9b7ac130cff13b3654517a061cd2b64d87aff474c03d7e1c9",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/errors.ts": "5a6518cf7bce7e66c6a79d45262f9214dd31a0e208b24fe31f0fa339300ab0eb",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/hkdf.ts": "e83df5ad81207a52078ea1ec349299469ac03b349fe4db0b00aa692e1f1fad28",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/keyAgreement.ts": "9003771ceeb996e447bd5db8bdea04e989453538d94ec68d33760f617e0fe52e",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/keyWrap.ts": "bfc5ea1badd84a865a1171571ade6baed034a611d337a5c7e93fe3940a5887e0",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/mac.ts": "f68621625c31bb94e40c398f65dce0143bd86980f192b7d1061f35d9517a7f6f",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/mod.ts": "54823c0688239e8746decf02b1af010a635b4ed4716c45f1e29fb51fa9810c8d",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/pbkdf2.ts": "10ca27d4a4ed66f07b378558e7cb6608d44a52cd85acd61e9ade0bd8045effbc",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/platform.ts": "9474600d4c20fcaba74bb6050ae178c0446ceba288f46a48caa4fc73ebfd10a6",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/publicEncryption.ts": "d7da21dd1e265dbde019794180d061bc0a069797ce685ea45737d332b544f950",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/rsaSignature.ts": "4044e12c83b93a56033a42fd4527fb894fcac4c3cadaa5fff8ea24a011fbe721",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/sha1Checked.ts": "542f191265ce2b834f5e805036980f1173886d583d25d58187290540dec1456f",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/signature.ts": "b0f7cf2dbe98a12ff5cfa588c3fe3e4df005b9fb34f66a8eae283de87dc4188b",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/util.ts": "b524d2f7d507f4a1830feea3cd73d5a08d30aa003a7ef6ca19a2883226271266",
-    "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/wrapping.ts": "5acd065d7beb5aa74eb7eb3721ad7d3717ddc7a176ec8bb2001f3b8651b30265",
     "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/runtime/src/cabi/async_values.ts": "af1279d4e4db5b756268979aeff5b27c1cf6c0f021213655676ade90472f282b",
     "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/runtime/src/cabi/context.ts": "b4b60891ef9d9e72b208636f6ba37f0b9b6962d307af6156ad3b5ad59a626902",
     "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/runtime/src/cabi/flatten.ts": "6c980fe38d7adce349d5e028b819eb0ffbb92714f958c1d5daae8da3e7ed3889",
@@ -653,6 +632,9 @@
     "dependencies": [
       "npm:node-datachannel@0.32.3",
       "npm:werift@0.22.2"
-    ]
+    ],
+    "links": {
+      "jsr:@polymorph/webcrypto-deltic@0.0.0": {}
+    }
   }
 }

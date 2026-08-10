@@ -16,7 +16,7 @@ from:
 | --- | --- |
 | `polymorph:websocket/connections` | `.deps/websocket/js/deltic/websocket.ts` |
 | `polymorph:webrtc-datachannels/connections` | `.deps/webrtc/deltic-impl/src/webrtc.ts` |
-| `polymorph:webcrypto/*` | deltic's `ports/webcrypto` at the pinned release (see below) |
+| `polymorph:webcrypto/*` | `.deps/webcrypto/js/deltic/src/mod.ts` |
 | `wasi:sockets/types` | `src/sockets.ts` — fail-on-call stubs (the browser profile; see its header) |
 | everything WASI | deltic's `wasi-shims` at the pinned release |
 
@@ -58,9 +58,10 @@ time by `fetch-translator.ts`:
 
 - `deno.json` — import-map URLs
   (`raw.githubusercontent.com/lann/deltic/<tag>/…`) for
-  `@deltic/runtime/{embedder,shim}`, `@deltic/wasi-shims`, and
-  `@polymorph/webcrypto-deltic`; `deno.lock` carries integrity hashes,
-  enforced with `--frozen`. The npm mappings (`node-datachannel`,
+  `@deltic/runtime/{embedder,shim}` and `@deltic/wasi-shims`;
+  `deno.lock` carries integrity hashes, enforced with `--frozen`. The
+  sibling host modules map to their `.deps` checkouts (pinned by
+  `scripts/setup.sh`), and the npm mappings (`node-datachannel`,
   `werift`) serve the webrtc module's bare specifiers, which resolve
   against this config as the entry import map.
 - `fetch-translator.ts` — `TAG` + `TRANSLATOR_SHA256` for the
@@ -70,13 +71,6 @@ time by `fetch-translator.ts`:
 To bump: update the tag in both files and the sha256 from the release's
 `SHA256SUMS`, delete `deno.lock`, re-run `just deltic-setup` to
 regenerate it, and commit the diff.
-
-**Webcrypto is a temporary pin.** `@polymorph/webcrypto-deltic` points at
-deltic's `ports/webcrypto` reference implementation until
-polymorph-webcrypto's own deltic module lands in that repository (its
-jco-replacement migration is in flight); then the mapping moves to the
-`.deps/webcrypto` checkout like the websocket/webrtc rows above and the
-URL pin goes away.
 
 ## Module identity
 

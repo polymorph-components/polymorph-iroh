@@ -1,12 +1,11 @@
 {
-  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/websocket/js/deltic, .deps/webrtc/deltic-impl) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof WitError` holds across every boundary. The npm mappings serve the webrtc module's bare `node-datachannel`/`werift` specifiers, which resolve against THIS config when run-endpoint.ts is the entry module.",
-  "//webcrypto": "TEMPORARY PIN: @polymorph/webcrypto-deltic points at deltic's ports/webcrypto reference until polymorph-webcrypto's own deltic module lands (its in-flight jco-replacement migration); then this maps to ../.deps/webcrypto/<its path> and the pin below goes away. fetch-translator.ts checks every raw.githubusercontent URL here against its TAG.",
+  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc,webcrypto}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof WitError` holds across every boundary. The npm mappings serve the webrtc module's bare `node-datachannel`/`werift` specifiers, which resolve against THIS config when run-endpoint.ts is the entry module.",
   "nodeModulesDir": "auto",
   "imports": {
     "@deltic/runtime/embedder": "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/runtime/src/embedder/mod.ts",
     "@deltic/runtime/shim": "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/runtime/src/shim/mod.ts",
     "@deltic/wasi-shims": "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/wasi-shims/src/mod.ts",
-    "@polymorph/webcrypto-deltic": "https://raw.githubusercontent.com/lann/deltic/pre-58b2404/ports/webcrypto/src/mod.ts",
+    "@polymorph/webcrypto-deltic": "../.deps/webcrypto/js/deltic/src/mod.ts",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "werift": "npm:werift@0.22.2"
