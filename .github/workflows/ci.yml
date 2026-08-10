@@ -55,6 +55,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          # setup.sh has already installed the pinned tools into
+          # ~/.cargo/bin when this restore runs; a cached bin/ would roll
+          # them back to whatever versions main's cache holds. Excluding
+          # bin/ also changes the cache path set, so entries saved with
+          # bin/ included no longer match.
+          cache-bin: false
           # The upstream iroh-relay builds into its own checkout's target.
           workspaces: |
             . -> target
