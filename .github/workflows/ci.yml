@@ -31,6 +31,13 @@ jobs:
         with:
           node-version: 24
 
+      # The deltic endpoint exam runs the component runtime-linked under
+      # stock Deno — no engine flag (see host-deltic/README.md).
+      - name: Install Deno (the deltic host; stock, no flags)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.5"
+
       - name: Cache the jco toolchain
         # Before setup.sh: on a hit, the pinned fork arrives already
         # built (setup.sh's stamp check skips the whole Rust+pnpm build).

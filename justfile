@@ -63,6 +63,25 @@ probes: build build-components
 matrix: build transpile relay-build
     ./scripts/matrix.sh
 
+# The deltic host's module graph + the node-datachannel addon (whose
+# install script needs an explicit grant). Idempotent.
+deltic-setup:
+    cd host-deltic && deno install --frozen --allow-scripts=npm:node-datachannel
+
+# The endpoint exam on the deltic host: the endpoint component
+# runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
+# upgrade, the issue #10 concurrency rows, teardown. See
+# host-deltic/README.md.
+exam-deltic: build-components relay-build deltic-setup
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shim=$(deno run --config host-deltic/deno.json --frozen \
+        --allow-read=. --allow-write=target/deltic \
+        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
+        host-deltic/fetch-translator.ts)
+    DELTIC_TRANSLATOR="$shim" timeout 600 deno run -A --config host-deltic/deno.json --frozen \
+        host-deltic/src/run-endpoint.ts
+
 # The measured-claims gate: per-wire latency/throughput medians and the
 # webcrypto boundary call counts, asserted against budgets (issue #4).
 bench: build transpile relay-build

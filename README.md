@@ -239,7 +239,13 @@ consequences by bounded polling on the clock import (cross-task wakeups
 have no channel that works on every host today; see the issues). The
 jco leg of this surface is blocked on an upstream jco scheduler defect;
 the JS consumer drivers (`host-jco/src/run-endpoint.mjs`,
-`run-endpoint-demo.mjs`) are ready for when it lands.
+`run-endpoint-demo.mjs`) are ready for when it lands. A second JS host
+runs the surface today: `host-deltic/` drives the endpoint component
+runtime-linked under [deltic](https://github.com/lann/deltic) on stock
+Deno (no transpile step, no engine flag), and `just exam-deltic` runs
+its five-scenario endpoint exam — bind + identity, relay echo, the
+WebRTC upgrade, the issue #10 concurrency rows as passing assertions,
+and teardown.
 
 `just matrix` runs every claimed pairing — both spike wires across all
 four host pairings plus the composed endpoint demo on every wire,
