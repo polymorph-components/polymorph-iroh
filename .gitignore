@@ -10,3 +10,4 @@ node_modules
 /experiments/udp-wake/host/generated
 /experiments/udp-wake/host/generated-composed
 /experiments/iroh-relay-ws/host/dist
+/experiments/iroh-blobs/host/dist
