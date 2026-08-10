@@ -89,5 +89,7 @@ udp-wake:
 check: fmt-check clippy validate-wit test
 
 # The exact set of checks CI runs: the CI job runs exactly one gha:: job
-# recipe.
-ci: (gha::checks)
+# recipe. Body form rather than a dependency: module recipes as
+# dependencies need just 1.42+, newer than the just this repository pins.
+ci:
+    @just gha::checks
