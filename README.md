@@ -108,7 +108,7 @@ protection, noq session glue). Specifically:
 
 The family's standing triangle, applied to a whole endpoint:
 
-- **Browser**: jco-transpiled, `polymorph:webcrypto` and
+- **Browser**: transpiled or runtime-linked, `polymorph:webcrypto` and
   `polymorph:webrtc-datachannels` served by the browser hosts over Web Crypto
   and `RTCPeerConnection`, `polymorph:websocket` over the browser `WebSocket`.
 - **Native / cloud**: Wasmtime, the host crates
@@ -190,11 +190,11 @@ design names, a WebRTC data channel and the relay connection itself.
   datagram frames, with the relay never holding connection keys. One QUIC
   datagram rides in one frame on either carrier; fixed 1200-byte initial
   MTU with MTU discovery and GSO batching disabled.
-- **Two hosts, four pairings per wire**: a Wasmtime host
-  (`host-wasmtime/`, the sibling host crates) and a Node 24+ jco host
-  (`host-jco/`, the siblings' JS host modules, JSPI). Every
-  client/server pairing of the two hosts exchanges one authenticated
-  echo each way on both wires, through the stock relay.
+- **One host pairing per wire, plus upstream interop**: the Wasmtime
+  host (`host-wasmtime/`, the sibling host crates) exchanges one
+  authenticated echo each way on both wires, through the stock relay.
+  (The deltic JS host, `host-deltic/`, runs the endpoint surface —
+  see below — not this spike demo.)
 
 To run it: build the guest, hosts, and the upstream relay, then hand the
 server's printed endpoint ID to the client (`WEBRTC_INCLUDE_LOOPBACK=1`
@@ -216,9 +216,7 @@ WEBRTC_INCLUDE_LOOPBACK=1 target/release/iroh-spike-host \
 ```
 
 Add `--transport relay` to both sides to run QUIC through the relay
-instead of a data channel. For the Node host: `cd host-jco &&
-npm install && npm run transpile`, then `npm run start -- --role
-<client|server> --server ... --room ...`.
+instead of a data channel.
 
 ### The endpoint component
 
@@ -237,20 +235,21 @@ composed via `wac plug` and driven by
 task per bound endpoint owns all I/O, and resource methods observe its
 consequences by bounded polling on the clock import (cross-task wakeups
 have no channel that works on every host today; see the issues). The
-jco leg of this surface is blocked on an upstream jco scheduler defect;
-the JS consumer drivers (`host-jco/src/run-endpoint.mjs`,
-`run-endpoint-demo.mjs`) are ready for when it lands. A second JS host
-runs the surface today: `host-deltic/` drives the endpoint component
-runtime-linked under [deltic](https://github.com/lann/deltic) on stock
-Deno (no transpile step, no engine flag), and `just exam-deltic` runs
+JS host for this surface is `host-deltic/`: it drives the endpoint
+component runtime-linked under [deltic](https://github.com/lann/deltic)
+on stock Deno (no transpile step, no engine flag) — the jco host this
+repository ran previously blocked on an upstream jco scheduler defect
+(the detached-pump shape deltic's scheduler serves instead) and has
+retired. `just exam-deltic` runs
 its five-scenario endpoint exam — bind + identity, relay echo, the
 WebRTC upgrade, the issue #10 concurrency rows as passing assertions,
 and teardown.
 
-`just matrix` runs every claimed pairing — both spike wires across all
-four host pairings plus the composed endpoint demo on every wire,
+`just matrix` runs every claimed pairing — the spike demo's wasmtime
+pairing on both wires plus the composed endpoint demo on every wire,
 cross-relay included — against stock `iroh-relay` servers; `just
-bench` gates the measured claims; `just ci` is the full gate. `just
+bench` gates the measured claims; `just exam-deltic` gates the
+deltic-hosted endpoint surface; `just ci` is the full gate. `just
 interop-prod` (manual, internet-dependent) checks the production
 relays.
 
@@ -264,5 +263,8 @@ Tracked as issues; the headline ones:
 - Direct UDP as an upgrade target (issue #12): disco-style datagram
   attribution and reachability probing, the native half of address
   discovery.
-- The jco browser leg (issue #10): upstream scheduler work, with the
-  root cause and partial fixes recorded on lann/jco#11 and PR #27.
+- The jco browser leg (issue #10): resolved by moving the JS host to
+  deltic (`host-deltic/`), which serves the detached-pump shape jco's
+  scheduler could not; the jco host and its scheduler-defect
+  workarounds have retired. Root cause and partial upstream fix
+  attempts remain recorded on lann/jco#11 and PR #27 for reference.
