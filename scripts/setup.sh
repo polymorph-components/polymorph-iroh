@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 WASM_TOOLS_VERSION="${WASM_TOOLS_VERSION:-1.247.0}"
-JUST_VERSION="${JUST_VERSION:-1.40.0}"
+JUST_VERSION="${JUST_VERSION:-1.54.0}"
 WAC_VERSION="${WAC_VERSION:-0.10.1}"
 
 WEBRTC_REPO=https://github.com/polymorph-components/polymorph-webrtc-datachannels.git
@@ -128,10 +128,18 @@ else
 fi
 
 log "Ensuring just ${JUST_VERSION} is installed"
-if command -v just >/dev/null 2>&1; then
+# Version-checked, not presence-checked: the justfiles carry a hard
+# version floor (module recipes as dependencies, just 1.42+), so a stale
+# just on PATH is replaced rather than tolerated.
+if command -v just >/dev/null 2>&1 && just --version 2>/dev/null | grep -qF "${JUST_VERSION}"; then
     echo "just already present: $(just --version)"
 else
     binstall "just@${JUST_VERSION}"
+    hash -r
+    just --version 2>/dev/null | grep -qF "${JUST_VERSION}" || {
+        echo "setup: a different just still shadows ${JUST_VERSION} on PATH: $(command -v just) ($(just --version))" >&2
+        exit 1
+    }
 fi
 
 log "Ensuring wac ${WAC_VERSION} is installed"
