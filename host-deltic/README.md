@@ -3,14 +3,14 @@
 The endpoint component runtime-linked under
 [deltic](https://github.com/lann/deltic): no transpile step, no generated
 tree, no engine flag. This is the JS-host leg of the endpoint surface
-that issue #10 blocks under jco — the detached pump task holding
+that issue #10 blocked under jco — the detached pump task holding
 in-flight relay imports across export calls is exactly the shape deltic's
-scheduler serves — running today, side by side with the jco spike legs
-and the drivers held ready for jco's fix.
+scheduler serves. The jco host (`host-jco/`) ran this repository's spike
+demo alongside this exam until it retired in favor of this host (see
+git history); this is now the repository's only JS host.
 
 The sibling repositories' own deltic host modules supply the non-WASI
-imports, from the same pinned checkouts the jco leg maps its modules
-from:
+imports, from the same pinned checkouts `scripts/setup.sh` maintains:
 
 | Import | Module |
 | --- | --- |

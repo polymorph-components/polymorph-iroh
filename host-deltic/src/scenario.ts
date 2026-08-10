@@ -1,5 +1,5 @@
 // Scenario support: verdict bookkeeping, the guest-panic watchdog, and the
-// stream helpers shared with the jco driver (host-jco/src/run-endpoint.mjs).
+// stream helpers (the same shape the retired jco host used).
 
 import { describeError, fromUtf8 } from "./harness.ts";
 import type { RecvStream } from "./types.ts";
@@ -93,7 +93,7 @@ export function settle(ms = 25): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// --- stream helpers (shared shape with host-jco/src/run-endpoint.mjs) -------
+// --- stream helpers (the same shape the retired jco host used) -------------
 
 export const READ_MAX = 16 * 1024;
 

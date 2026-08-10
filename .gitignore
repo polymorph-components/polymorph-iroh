@@ -1,14 +1,6 @@
 target/
 /.deps
 node_modules
-/host-jco/generated
-/host-jco/generated-exec
-/host-jco/generated-endpoint
-/host-jco/generated-endpoint-demo
-/host-jco/build
-/experiments/udp-wake/composed.wasm
-/experiments/udp-wake/host/generated
-/experiments/udp-wake/host/generated-composed
 /experiments/iroh-relay-ws/host/dist
 /experiments/iroh-blobs/host/dist
 /experiments/ping-demo/web/site
