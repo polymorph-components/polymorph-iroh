@@ -1,0 +1,92 @@
+// Shared host wiring for the upstream-iroh spikes under deltic: artifact
+// translation, the WASI import record, and the guest `run` entry point.
+//
+// Platform-portable core: byte loading (filesystem vs fetch) stays in the
+// drivers (run.ts, browser-entry.ts); everything here uses standard
+// globals only.
+//
+// MODULE-IDENTITY CONSTRAINT (host-deltic/README.md "Module identity"):
+// deltic's wasi-shims and this package import `@deltic/runtime/embedder`
+// by bare specifier; the `deno.json` next to this file maps that
+// specifier once for the whole module graph, so there is exactly one
+// `WitError` module instance and `instanceof` holds across every
+// boundary — including the branded errors sockets.ts throws.
+
+import type { ComponentArtifacts } from "@deltic/runtime/embedder";
+import { artifactsFromEnvelope, instantiate } from "@deltic/runtime/embedder";
+import { OutputStream, wasiShims } from "@deltic/wasi-shims";
+import { syntheticNetImports } from "./sockets.ts";
+
+/** Reconstitute build-time-translated artifacts (embedder-api A4). */
+export function artifactsFrom(
+  envelopeJson: string,
+  componentBytes: Uint8Array,
+): ComponentArtifacts {
+  return artifactsFromEnvelope(envelopeJson, componentBytes);
+}
+
+/** A line-buffered console sink, tagged like the jco spike's shim was. */
+function lineSink(tag: string, emit: (line: string) => void): (chunk: Uint8Array) => void {
+  let buf = "";
+  const decoder = new TextDecoder();
+  return (chunk) => {
+    buf += decoder.decode(chunk, { stream: true });
+    for (;;) {
+      const nl = buf.indexOf("\n");
+      if (nl === -1) break;
+      emit(`[${tag}] ${buf.slice(0, nl)}`);
+      buf = buf.slice(nl + 1);
+    }
+  };
+}
+
+export interface GuestOptions {
+  /** `wasi:cli/environment#get-arguments`. */
+  args: string[];
+  /** Guest environment (RUST_LOG and the demo's role variables ride here). */
+  env: Record<string, string>;
+}
+
+/**
+ * The full import record for the spike guests: deltic's wasi-shims
+ * baseline, with the synthetic network fragment (sockets.ts) replacing
+ * the tier-(a) poll/clock stubs, and stdio routed to the console
+ * line-buffered.
+ */
+export function guestImports(options: GuestOptions): Record<string, unknown> {
+  const stdout = new OutputStream(lineSink("guest-out", console.log));
+  const stderr = new OutputStream(lineSink("guest-err", console.error));
+  return {
+    ...wasiShims({ cli: { args: options.args, env: options.env } }),
+    ...syntheticNetImports(),
+    "wasi:cli/stdout@0.2": { getStdout: (): OutputStream => stdout },
+    "wasi:cli/stderr@0.2": { getStderr: (): OutputStream => stderr },
+  };
+}
+
+/**
+ * Instantiate the guest and invoke its `wasi:cli/run` export.
+ *
+ * `artifacts` is anything `instantiate` accepts (embedder-api A3): the
+ * translated `ComponentArtifacts`, or `{ componentBytes, translator }`
+ * for in-process translation. jspi mode is selected by the `suspending()`
+ * markers in sockets.ts; no explicit option is needed.
+ */
+export async function runGuest(
+  artifacts: ComponentArtifacts | {
+    componentBytes: Uint8Array;
+    translator: Uint8Array;
+  },
+  imports: Record<string, unknown>,
+): Promise<void> {
+  const instance = await instantiate(artifacts, imports);
+  const runKey = Object.keys(instance.exports).find((k) => k.startsWith("wasi:cli/run@"));
+  if (runKey === undefined) {
+    throw new Error(
+      `guest exports no wasi:cli/run interface (exports: ${
+        Object.keys(instance.exports).join(", ")
+      })`,
+    );
+  }
+  await instance.exports[runKey].run();
+}

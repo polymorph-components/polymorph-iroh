@@ -86,6 +86,19 @@ bench: build relay-build
 interop-prod: build
     ./scripts/interop-prod.sh
 
+# The upstream-iroh-over-relay spike (issue #14): the unmodified iroh
+# crate (upstream main + the wasi-enablement patch branches, from the
+# lann/iroh and lann/net-tools polymorph-iroh branches) as a wasip2
+# component, runtime-linked under deltic on stock Deno — relay-only
+# bootstrap over the polymorph-websocket sibling's deltic module, then
+# live migration onto a WebRTC data channel through the synthetic-address
+# overlay (issue #26). Research probe attached to the issue, so manual:
+# not part of `ci`. Needs the sibling checkouts from setup.sh.
+iroh-relay-ws: relay-build
+    cd experiments/iroh-relay-ws/guest && cargo build --release
+    cd experiments/iroh-relay-ws/host && deno install --frozen --allow-scripts=npm:node-datachannel
+    ./experiments/iroh-relay-ws/run.sh
+
 # The fast pre-commit checks.
 check: fmt-check clippy validate-wit test
 
