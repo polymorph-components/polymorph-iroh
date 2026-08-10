@@ -53,8 +53,8 @@ guest's and is latent on every host.
 
 ## The pin
 
-deltic is pinned to a release tag in TWO places, cross-checked at run
-time by `fetch-translator.ts`:
+deltic is pinned to ONE release tag repo-wide, cross-checked at run time
+by `fetch-translator.ts`:
 
 - `deno.json` — import-map URLs
   (`raw.githubusercontent.com/lann/deltic/<tag>/…`) for
@@ -67,10 +67,16 @@ time by `fetch-translator.ts`:
 - `fetch-translator.ts` — `TAG` + `TRANSLATOR_SHA256` for the
   `deltic-translator-shim.wasm` release asset (cached under
   `target/deltic/<tag>/`).
+- `experiments/iroh-relay-ws/host/deno.json` — the upstream-iroh spikes'
+  shared config (one import map for all three experiments), plus the
+  translate-CLI URL in `experiments/ping-demo/build.sh`; both must carry
+  the same tag, and `fetch-translator.ts` refuses to run on drift.
 
-To bump: update the tag in both files and the sha256 from the release's
-`SHA256SUMS`, delete `deno.lock`, re-run `just deltic-setup` to
-regenerate it, and commit the diff.
+To bump: update the tag in all of the above and the sha256 from the
+release's `SHA256SUMS`, delete both `deno.lock` files, re-run
+`just deltic-setup` and `deno install --allow-scripts=npm:node-datachannel`
+in `experiments/iroh-relay-ws/host/` to regenerate them, and commit the
+diff.
 
 ## Module identity
 
