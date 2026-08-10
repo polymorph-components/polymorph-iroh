@@ -23,8 +23,8 @@ _step recipe:
         just {{recipe}}
     fi
 
-# The full gate: checks, probes, the cross-host pairing matrix, and the
-# measured-claims bench.
+# The full gate: checks, probes, the cross-host pairing matrix, the
+# deltic endpoint exam, and the measured-claims bench.
 checks:
     @just gha::_step fmt-check
     @just gha::_step clippy
@@ -32,4 +32,5 @@ checks:
     @just gha::_step test
     @just gha::_step probes
     @just gha::_step matrix
+    @just gha::_step exam-deltic
     @just gha::_step bench
