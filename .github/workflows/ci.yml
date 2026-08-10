@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # The full gate: checks, probes, and the cross-host pairing matrix — the
-  # same `just ci` a developer runs.
+  # same `just ci` a developer runs, which runs the gha::checks recipe.
   ci:
     runs-on: ubuntu-latest
     # QUIC/WebRTC handshakes can hang; cap the job so a stuck run fails
@@ -64,4 +64,4 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run the gate
-        run: just ci
+        run: just gha::checks

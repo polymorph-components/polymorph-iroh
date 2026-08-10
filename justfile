@@ -1,7 +1,12 @@
 # The single entry point for building and checking this repository; run
-# `just` to list recipes. CI (once it exists) runs the same recipes.
+# `just` to list recipes. CI job bodies live in the gha module
+# (`.github/justfile`), so `just ci` is exactly CI.
 
-_default:
+# GitHub Actions plumbing: CI job entry points.
+mod gha '.github'
+
+# List the available recipes.
+default:
     @just --list
 
 # One-shot dependency setup (sibling + iroh checkouts, npm installs).
@@ -80,5 +85,11 @@ udp-wake:
     cd experiments/udp-wake && wac plug guest/target/wasm32-wasip2/release/iroh-udp-wake-guest.wasm --plug virt/target/wasm32-wasip2/release/iroh_udp_wake_virt.wasm -o composed.wasm
     cd experiments/udp-wake/host && npm install --no-audit --no-fund && npm run transpile && timeout 120 npm start && timeout 120 npm run start-composed
 
-# The full gate.
-ci: fmt-check clippy validate-wit test probes matrix bench
+# The fast pre-commit checks.
+check: fmt-check clippy validate-wit test
+
+# The exact set of checks CI runs: the CI job runs exactly one gha:: job
+# recipe. Body form rather than a dependency: module recipes as
+# dependencies need just 1.42+, newer than the just this repository pins.
+ci:
+    @just gha::checks
