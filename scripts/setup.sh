@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # One-shot dependency setup, the single source of truth shared by local
-# developers and CI: the pinned toolchain and tools, sibling repositories
-# checked out under .deps/ at pinned commits, and the npm trees the Node
-# host needs. Idempotent; safe to re-run.
+# developers and CI: the pinned toolchain and tools, and sibling
+# repositories checked out under .deps/ at pinned commits. Idempotent;
+# safe to re-run.
 #
 # Environment:
-#   SKIP_NODE=1          skip the npm installs
 #   WASM_TOOLS_VERSION   version of wasm-tools to install (default below)
 #   JUST_VERSION         version of just to install (default below)
 #   WAC_VERSION          version of wac-cli to install (default below)
@@ -26,15 +25,6 @@ IROH_REPO=https://github.com/n0-computer/iroh.git
 IROH_PIN=816dd70c056b813dcb5cbfb6a9a15e12d04b72b1 # v1.0.3
 TLS_REPO=https://github.com/polymorph-components/polymorph-tls.git
 TLS_PIN=e43cad46625b049c1037cc734114457e1ae2cac1
-# The jco fork: the P3/JSPI transpiler with the async fixes this
-# repository needs (lann/jco all-fixes plus the first two commits of
-# PR #27; the PR's concurrency fixes are excluded until the exec-model
-# probes pass with them — see the PR's verification notes). host-jco
-# consumes packages/jco-transpile as a file: dependency, so this
-# checkout must be built before host-jco's npm install resolves
-# against it.
-JCO_REPO=https://github.com/lann/jco.git
-JCO_PIN=30186b2b1ee0ce7ef9703844b41b0af2456a5476 # PR #27, ponyfill fix
 
 log() { printf '\n==> %s\n' "$1"; }
 
@@ -171,40 +161,5 @@ dep websocket "$WEBSOCKET_REPO" "$WEBSOCKET_PIN"
 # Upstream iroh: the stock relay server the demo runs against.
 dep iroh "$IROH_REPO" "$IROH_PIN"
 dep tls "$TLS_REPO" "$TLS_PIN"
-dep jco "$JCO_REPO" "$JCO_PIN"
-
-if [ "${SKIP_NODE:-}" != "1" ]; then
-    log "Building the jco toolchain from the pinned fork"
-    # The stamp records which pin the build products belong to; a moved
-    # pin invalidates them even though the files still exist.
-    JCO_STAMP=.deps/jco/.component-iroh-built-at
-    if [ -f "$JCO_STAMP" ] && [ "$(cat "$JCO_STAMP")" = "$JCO_PIN" ]; then
-        echo "jco toolchain already built at $JCO_PIN"
-    else
-        PATH="$(npm prefix -g)/bin:$PATH"
-        if ! command -v pnpm >/dev/null 2>&1; then
-            npm install -g pnpm
-        fi
-        (
-            cd .deps/jco
-            # The fork pins its own toolchain (stable + wasm32-wasip1)
-            # in its rust-toolchain.toml.
-            rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install
-            pnpm install --frozen-lockfile
-            cargo xtask build debug
-            pnpm run --filter @bytecodealliance/jco-transpile build
-            # The cargo intermediates dwarf the build products; drop them
-            # so caching .deps/jco stays cheap.
-            rm -rf target
-        )
-        echo "$JCO_PIN" > "$JCO_STAMP"
-    fi
-
-    log "Installing npm dependencies"
-    # The webrtc sibling's jco host module resolves node-datachannel from
-    # its own package directory.
-    npm install --prefix .deps/webrtc/jco-impl
-    npm install --prefix host-jco
-fi
 
 log "setup complete"
