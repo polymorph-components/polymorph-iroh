@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# The measured-claims gate: per-wire handshake and roundtrip medians,
-# bulk-transfer throughput, and the webcrypto boundary's per-run call
-# counts, asserted against the budgets below. The numbers land in
-# target/bench/report.tsv (and stdout); the budgets are the recorded
-# invariants — a number that matters is asserted here, not written in
-# prose. Requires the same artifacts as the matrix (`just build`,
-# `just transpile`, `just relay-build`).
+# The measured-claims gate: per-wire handshake and roundtrip medians and
+# bulk-transfer throughput, asserted against the budgets below. The
+# numbers land in target/bench/report.tsv (and stdout); the budgets are
+# the recorded invariants — a number that matters is asserted here, not
+# written in prose. Requires the same artifacts as the matrix (`just
+# build`, `just relay-build`).
 set -u
 cd "$(dirname "$0")/.."
 
@@ -13,19 +12,11 @@ cd "$(dirname "$0")/.."
 #
 # Time ceilings are deliberately loose: they catch order-of-magnitude
 # regressions (a lost first flight, a stalled pump) without flaking on
-# shared CI runners. The crypto-call vector is exact: the guest's call
-# sequence is deterministic, so any change is a boundary change to
-# review, not noise.
+# shared CI runners.
 
 HANDSHAKE_CEILING_MS=2000
 ROUNDTRIP_CEILING_MS=2000
 BULK_FLOOR_MBPS=1.0
-# Per full demo run (bind + one connection), per role: identity keygen,
-# public-key export, two signs (relay auth + TLS CertificateVerify),
-# and the two option getters the keygen consults.
-CRYPTO_TOTAL_CALLS=6
-CRYPTO_SIGN_CALLS=2
-CRYPTO_KEYGEN_CALLS=1
 
 RELAY_PORT=3341
 RELAY_URL="http://127.0.0.1:${RELAY_PORT}"
@@ -161,10 +152,6 @@ bench_bulk() {
         || fail "$row throughput ${mbps}MB/s < ${BULK_FLOOR_MBPS}MB/s"
 }
 
-jco_bench() {
-    (cd host-jco && exec timeout 120 node --experimental-wasm-jspi src/run-bench.mjs "$@")
-}
-
 # --- latency rows ----------------------------------------------------------
 #
 # The spike (single-task, event-driven pump) is the baseline the
@@ -214,39 +201,6 @@ bench_bulk endpoint-webrtc-bulk "$BULK_ITERS" \
         --role server --relay "$RELAY_URL" --webrtc -- \
     env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --payload-bytes "$BULK_BYTES" --peer
-
-# --- the crypto boundary (#4) ----------------------------------------------
-#
-# One instrumented spike pair on the jco host. The call counts are a
-# property of the guest code path (identical on every host); the
-# wall-clock is this host's WebCrypto.
-
-crypto_row() {
-    local line
-    line=$(run_once crypto-jco \
-        jco_bench --role server --server "$RELAY_URL" -- \
-        jco_bench --role client --server "$RELAY_URL" --peer) \
-        || { FAILURES=$((FAILURES + 1)); return; }
-    for side in client server; do
-        local log="$LOGDIR/crypto-jco-$side.log"
-        local total sign keygen ms
-        total=$(sed -n 's/^crypto-total calls=\([0-9]*\).*/\1/p' "$log")
-        ms=$(sed -n 's/^crypto-total calls=[0-9]* total_ms=\([0-9.]*\).*/\1/p' "$log")
-        sign=$(sed -n 's/^crypto signature.SigningKey#sign calls=\([0-9]*\).*/\1/p' "$log")
-        keygen=$(sed -n 's/^crypto ed25519-sign.generateKey calls=\([0-9]*\).*/\1/p' "$log")
-        emit "crypto-$side" boundary_calls "${total:-0}"
-        emit "crypto-$side" boundary_total_ms "${ms:-0}"
-        emit "crypto-$side" sign_calls "${sign:-0}"
-        emit "crypto-$side" keygen_calls "${keygen:-0}"
-        [ "${total:-0}" = "$CRYPTO_TOTAL_CALLS" ] \
-            || fail "crypto-$side boundary calls ${total:-0} != $CRYPTO_TOTAL_CALLS"
-        [ "${sign:-0}" = "$CRYPTO_SIGN_CALLS" ] \
-            || fail "crypto-$side sign calls ${sign:-0} != $CRYPTO_SIGN_CALLS"
-        [ "${keygen:-0}" = "$CRYPTO_KEYGEN_CALLS" ] \
-            || fail "crypto-$side keygen calls ${keygen:-0} != $CRYPTO_KEYGEN_CALLS"
-    done
-}
-crypto_row
 
 # ---------------------------------------------------------------------------
 

@@ -3,11 +3,12 @@
 // host modules supplying every non-WASI import — no transpile step, no
 // generated tree, no engine flag.
 //
-// This is the endpoint workload the jco leg cannot run yet (issue #10 =
+// This is the endpoint workload the jco leg was blocked on (issue #10 =
 // lann/jco#11: a detached pump task holding in-flight imports deadlocks
 // every later export call; lann/jco#13: cross-task wakeups are not
-// delivered), driven by the same logic as the jco driver held ready for
-// when that lands (host-jco/src/run-endpoint.mjs).
+// delivered), driven by the same logic as that leg's driver carried
+// (host-jco/src/run-endpoint.mjs — removed with the jco host; #10
+// closed as superseded by this exam).
 //
 //   just exam-deltic
 //

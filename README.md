@@ -108,9 +108,11 @@ protection, noq session glue). Specifically:
 
 The family's standing triangle, applied to a whole endpoint:
 
-- **Browser**: jco-transpiled, `polymorph:webcrypto` and
-  `polymorph:webrtc-datachannels` served by the browser hosts over Web Crypto
-  and `RTCPeerConnection`, `polymorph:websocket` over the browser `WebSocket`.
+- **JS / browser**: the `deltic` runtime (stock Deno; no transpile step,
+  no engine flag), with `polymorph:webcrypto`,
+  `polymorph:webrtc-datachannels`, and `polymorph:websocket` served by
+  the siblings' own deltic host modules over Web Crypto,
+  `RTCPeerConnection`, and `WebSocket`.
 - **Native / cloud**: Wasmtime, the host crates
   (`add_to_linker` + view traits) over RustCrypto, webrtc-rs, and native
   sockets; UDP directly via `wasi:sockets`.
@@ -190,18 +192,19 @@ design names, a WebRTC data channel and the relay connection itself.
   datagram frames, with the relay never holding connection keys. One QUIC
   datagram rides in one frame on either carrier; fixed 1200-byte initial
   MTU with MTU discovery and GSO batching disabled.
-- **Two hosts, four pairings per wire**: a Wasmtime host
-  (`host-wasmtime/`, the sibling host crates) and a Node 24+ jco host
-  (`host-jco/`, the siblings' JS host modules, JSPI). Every
-  client/server pairing of the two hosts exchanges one authenticated
-  echo each way on both wires, through the stock relay.
+- **One host in this spike**: a Wasmtime host (`host-wasmtime/`, the
+  sibling host crates). The wasmtime↔wasmtime pairing exchanges one
+  authenticated echo each way on both wires, through the stock relay.
+  (The spike originally also paired against a Node jco host; that leg
+  was removed as superseded by `host-deltic/`'s endpoint-surface exam —
+  see "The endpoint component" below.)
 
 To run it: build the guest, hosts, and the upstream relay, then hand the
 server's printed endpoint ID to the client (`WEBRTC_INCLUDE_LOOPBACK=1`
 lets same-host peers pair on the WebRTC wire):
 
 ```sh
-./scripts/setup.sh   # sibling + iroh checkouts under .deps, npm installs
+./scripts/setup.sh   # sibling + iroh checkouts under .deps
 cargo build -p iroh-spike-guest --target wasm32-wasip2 --release
 cargo build -p iroh-spike-host-wasmtime --release
 (cd .deps/iroh && cargo build --release -p iroh-relay --features server --bin iroh-relay)
@@ -216,9 +219,7 @@ WEBRTC_INCLUDE_LOOPBACK=1 target/release/iroh-spike-host \
 ```
 
 Add `--transport relay` to both sides to run QUIC through the relay
-instead of a data channel. For the Node host: `cd host-jco &&
-npm install && npm run transpile`, then `npm run start -- --role
-<client|server> --server ... --room ...`.
+instead of a data channel.
 
 ### The endpoint component
 
@@ -237,20 +238,19 @@ composed via `wac plug` and driven by
 task per bound endpoint owns all I/O, and resource methods observe its
 consequences by bounded polling on the clock import (cross-task wakeups
 have no channel that works on every host today; see the issues). The
-jco leg of this surface is blocked on an upstream jco scheduler defect;
-the JS consumer drivers (`host-jco/src/run-endpoint.mjs`,
-`run-endpoint-demo.mjs`) are ready for when it lands. A second JS host
-runs the surface today: `host-deltic/` drives the endpoint component
-runtime-linked under [deltic](https://github.com/lann/deltic) on stock
-Deno (no transpile step, no engine flag), and `just exam-deltic` runs
+JS host leg of this surface runs on `host-deltic/`, which drives the
+endpoint component runtime-linked under
+[deltic](https://github.com/lann/deltic) on stock Deno (no transpile
+step, no engine flag), and `just exam-deltic` runs
 its five-scenario endpoint exam — bind + identity, relay echo, the
 WebRTC upgrade, the issue #10 concurrency rows as passing assertions,
 and teardown.
 
-`just matrix` runs every claimed pairing — both spike wires across all
-four host pairings plus the composed endpoint demo on every wire,
+`just matrix` runs every claimed pairing — both spike wires on the
+wasmtime pairing plus the composed endpoint demo on every wire,
 cross-relay included — against stock `iroh-relay` servers; `just
-bench` gates the measured claims; `just ci` is the full gate. `just
+bench` gates the measured claims; `just exam-deltic` gates the
+deltic-host endpoint exam; `just ci` is the full gate. `just
 interop-prod` (manual, internet-dependent) checks the production
 relays.
 
@@ -264,5 +264,11 @@ Tracked as issues; the headline ones:
 - Direct UDP as an upgrade target (issue #12): disco-style datagram
   attribution and reachability probing, the native half of address
   discovery.
-- The jco browser leg (issue #10): upstream scheduler work, with the
-  root cause and partial fixes recorded on lann/jco#11 and PR #27.
+
+The jco browser leg (issue #10) was removed: it was blocked on an
+upstream jco scheduler defect (the detached pump task holding
+in-flight imports across export calls deadlocks later export calls —
+root cause and partial fixes on lann/jco#11 and PR #27; cross-task
+wakeup delivery, lann/jco#13), and is superseded by `host-deltic/`'s
+endpoint-surface exam (PR #36), which runs the same JS-host coverage
+on stock Deno today. Issue #10 closes as superseded.

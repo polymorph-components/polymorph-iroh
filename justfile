@@ -9,7 +9,7 @@ mod gha '.github'
 default:
     @just --list
 
-# One-shot dependency setup (sibling + iroh checkouts, npm installs).
+# One-shot dependency setup (sibling + iroh checkouts).
 setup:
     ./scripts/setup.sh
 
@@ -26,11 +26,6 @@ build-hosts:
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
     cd .deps/iroh && cargo build --release -p iroh-relay --features server --bin iroh-relay
-
-# Transpile the guest components for the Node host.
-transpile: build-components
-    cd host-jco && npm run transpile
-    cd host-jco && npm run transpile-endpoint
 
 build: build-components build-hosts
 
@@ -53,14 +48,13 @@ validate-wit:
     wasm-tools component wit endpoint-demo/wit/ > /dev/null
     wasm-tools component wit experiments/exec-model/wit/ > /dev/null
 
-# The execution-model probes on both hosts.
+# The execution-model probes on the wasmtime host.
 probes: build build-components
     cargo build -p iroh-exec-model-guest --target wasm32-wasip2 --release
     target/release/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
-    cd host-jco && npm run transpile-exec && timeout 120 node --experimental-wasm-jspi src/run-exec.mjs
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.
-matrix: build transpile relay-build
+matrix: build relay-build
     ./scripts/matrix.sh
 
 # The deltic host's module graph + the node-datachannel addon (whose
@@ -84,7 +78,7 @@ exam-deltic: build-components relay-build deltic-setup
 
 # The measured-claims gate: per-wire latency/throughput medians and the
 # webcrypto boundary call counts, asserted against budgets (issue #4).
-bench: build transpile relay-build
+bench: build relay-build
     ./scripts/bench.sh
 
 # The endpoint against n0's production relays over wss (issue #2).
@@ -97,7 +91,10 @@ interop-prod: build
 # wasi:sockets shim — once host-side, once through a wac-composed
 # guest-side virtualization component over a generic event source.
 # Research probes attached to the issue, so manual: not part of `ci`.
-# Needs the jco fork from setup.sh.
+# NOTE: needs a jco checkout+build under .deps/jco; setup.sh no longer
+# provisions one (the jco host leg was removed). See the entanglement
+# note in the removal report — this experiment is unmaintained until
+# a jco toolchain is available some other way.
 udp-wake:
     cd experiments/udp-wake/guest && cargo build --release
     cd experiments/udp-wake/virt && cargo build --release

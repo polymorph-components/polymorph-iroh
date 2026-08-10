@@ -2,10 +2,10 @@
 // handle on `polymorph:iroh/endpoint@0.1.0` per endpoint instance.
 //
 // Everything here is host wiring; the scenarios in `run-endpoint.ts` carry
-// the verdicts. The driving logic is shared with the jco driver
-// (host-jco/src/run-endpoint.mjs): that driver's `iroh.Endpoint.bind(...)`
-// is this file's `bindEndpoint(...)` over `instantiate` + the deltic
-// embedder facade.
+// the verdicts. The driving logic follows the former jco driver
+// (host-jco/src/run-endpoint.mjs, removed with the jco host): that
+// driver's `iroh.Endpoint.bind(...)` is this file's `bindEndpoint(...)`
+// over `instantiate` + the deltic embedder facade.
 //
 // MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling host
 // modules import `@deltic/runtime/embedder` by bare specifier internally;
@@ -157,8 +157,8 @@ export async function newEndpointInstance(
 }
 
 /**
- * `Endpoint.bind`, with the jco driver's driving shape
- * (host-jco/src/run-endpoint.mjs): generate an identity, construct
+ * `Endpoint.bind`, with the former jco driver's driving shape
+ * (host-jco/src/run-endpoint.mjs, removed): generate an identity, construct
  * `endpoint-options` around it, populate the setters, bind. The options
  * resource is consumed by `bind`; the identity's borrow ends at the
  * constructor, so it is dropped once the endpoint is up.
