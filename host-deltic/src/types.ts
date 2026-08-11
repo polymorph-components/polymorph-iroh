@@ -121,6 +121,8 @@ export interface Connection {
   openUni(): Promise<SendStream>;
   acceptBi(): Promise<[SendStream, RecvStream]>;
   acceptUni(): Promise<RecvStream>;
+  /** `option<u32>`: path-dependent and not latched (see wit/iroh.wit). */
+  maxDatagramSize(): Promise<number | undefined>;
   close(code: number, reason: string): Promise<void>;
   /** `option<close-info>`: `undefined` unless the peer's application close arrived. */
   waitClosed(): Promise<CloseInfo | undefined>;

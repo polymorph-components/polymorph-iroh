@@ -41,8 +41,9 @@ use futures::stream::FuturesUnordered;
 use futures::{select_biased, FutureExt, StreamExt};
 use noq_proto::{
     ClientConfig, Connection as NoqConnection, ConnectionError, ConnectionHandle, DatagramEvent,
-    Dir, Endpoint as NoqEndpoint, EndpointConfig, Event, FinishError, FourTuple, PathId, ReadError,
-    ReadableError, ServerConfig, StreamEvent, StreamId, TransportConfig, VarInt, WriteError,
+    Dir, Endpoint as NoqEndpoint, EndpointConfig, Event, FinishError, FourTuple,
+    MtuDiscoveryConfig, PathId, ReadError, ReadableError, ServerConfig, StreamEvent, StreamId,
+    TransportConfig, VarInt, WriteError,
 };
 
 use iroh_endpoint_core::crypto::sign::Identity;
@@ -72,15 +73,38 @@ const TICK_NS: u64 = 10_000_000;
 /// Bounded window for final packets after `endpoint.close`.
 const LINGER: Duration = Duration::from_millis(500);
 
-/// The transport profile shared by every wire (the issue #1 v0 ruling):
-/// fixed conservative 1200-byte MTU, no discovery — the relay and the
-/// data channel fragment transparently, so probing would measure
-/// nothing real, and a fixed size never engages that fragmentation —
-/// one datagram per transmit.
+/// The packet-size ceiling every path's MTU discovery searches up to,
+/// and the largest UDP payload this endpoint advertises accepting
+/// (issue #47, amending issue #1's fixed-1200 ruling). Sized by
+/// measurement, not by the wires' hard caps (the stock relay takes
+/// 64 KiB packets, data-channel implementations commonly 64 KiB
+/// messages): bulk throughput improves on every wire at 4096 but the
+/// channel wire collapses when full packets span many SCTP chunks —
+/// 8192 (~7 chunks per message) measured 3x WORSE than the fixed-1200
+/// profile on the webrtc bulk row, while 4096 (~3.4 chunks) beats it.
+/// The bench's budget rows are the regression guard. For datagram
+/// consumers the ceiling erases the fragmentation tax: ~4 KiB
+/// application datagrams, against the ~1.4 KiB frames protocols like
+/// mosh need.
+const MTU_CEILING: u16 = 4096;
+
+/// The transport profile shared by every wire: a 1200-byte floor with
+/// per-path MTU discovery bounded by `MTU_CEILING`. Discovery is what
+/// differentiates the wires — no per-path configuration exists in noq.
+/// Probes on the relay and data-channel wires always arrive (both
+/// carry far larger messages natively), so those paths converge on the
+/// ceiling; probes on a real UDP path die above the true path MTU, so
+/// the direct path finds reality (and the peer's `max-udp-payload-size`
+/// advertisement — 1472 from upstream iroh — caps the search). noq's
+/// per-path black-hole detector shrinks a path whose large packets
+/// start dying: the guard for a lossy channel fragmenting them. GSO
+/// batching stays disabled — one datagram per transmit.
 fn transport_config() -> Arc<TransportConfig> {
     let mut config = TransportConfig::default();
     config.initial_mtu(1200);
-    config.mtu_discovery_config(None);
+    let mut mtud = MtuDiscoveryConfig::default();
+    mtud.upper_bound(MTU_CEILING);
+    config.mtu_discovery_config(Some(mtud));
     Arc::new(config)
 }
 
@@ -411,7 +435,7 @@ impl State {
             ..
         } = self;
         for (handle, entry) in conns.iter_mut() {
-            let mut buf = Vec::with_capacity(1500);
+            let mut buf = Vec::with_capacity(MTU_CEILING as usize);
             loop {
                 let mut progressed = false;
 
@@ -1231,8 +1255,15 @@ impl GuestEndpoint for EndpointRes {
             Arc::new(TokenKey::new(&token_master)),
         );
         server_config.transport_config(transport_config());
+        // The advertisement is the bound the PEER's discovery searches
+        // up to (noq clamps by it); both sides must raise it for a
+        // raised ceiling to take effect.
+        let mut endpoint_config = EndpointConfig::new(Arc::new(ResetKey::new(&reset_key)));
+        endpoint_config
+            .max_udp_payload_size(MTU_CEILING)
+            .expect("MTU_CEILING is within QUIC's payload bounds");
         let noq = NoqEndpoint::new(
-            Arc::new(EndpointConfig::new(Arc::new(ResetKey::new(&reset_key)))),
+            Arc::new(endpoint_config),
             Some(Arc::new(server_config)),
             true,
         );

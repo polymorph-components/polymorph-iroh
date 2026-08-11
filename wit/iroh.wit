@@ -314,10 +314,23 @@ interface endpoint {
         accept-uni: async func() -> result<recv-stream, error>;
 
         /// The largest datagram `send-datagram` accepts right now, or
-        /// `none` when the peer does not accept datagrams. Varies with
-        /// the path MTU; under this package's fixed 1200-byte MTU
-        /// profile expect roughly 1.1 KiB between two of these
-        /// endpoints.
+        /// `none` when the peer does not accept datagrams.
+        ///
+        /// The value is path-dependent and not latched. Each path
+        /// discovers its own packet-size ceiling: a path over a wire
+        /// with no real packet-size limit (relay, WebRTC) converges on
+        /// an implementation-defined ceiling well above the 1200-byte
+        /// QUIC minimum, and a UDP path discovers the actual path MTU.
+        /// The value can rise as discovery progresses and can change
+        /// either way when `connection.path` moves — re-read it after
+        /// a path change. A datagram accepted before a downward move
+        /// may be dropped instead of delivered: loss is this
+        /// transport's semantics.
+        ///
+        /// Discovery is also per direction: this value is the local
+        /// send limit, and the peer's may lag or lead it. A payload
+        /// that fit the sender's ceiling does not necessarily fit the
+        /// receiver's when it echoes.
         max-datagram-size: func() -> option<u32>;
 
         /// Queue one unreliable, unordered datagram (RFC 9221).

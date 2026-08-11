@@ -89,6 +89,7 @@ struct Cli {
     peer_relay: Option<String>,
     payload_bytes: Option<u64>,
     datagram: bool,
+    datagram_ceiling: Option<u32>,
     inject_identity: bool,
     identity_negative: bool,
     message: String,
@@ -100,7 +101,8 @@ fn usage() -> wasmtime::Error {
          --relay <relay-url> [--peer <endpoint-id-hex>] [--alpn A] \
          [--udp-bind <ip:port>] [--direct <ip:port>] [--webrtc] \
          [--peer-relay <relay-url>] [--payload-bytes N] [--datagram] \
-         [--inject-identity] [--identity-negative] [--message M]",
+         [--datagram-ceiling BYTES] [--inject-identity] \
+         [--identity-negative] [--message M]",
     )
 }
 
@@ -117,6 +119,7 @@ fn parse_args() -> Result<Cli> {
     let mut peer_relay = None;
     let mut payload_bytes = None;
     let mut datagram = false;
+    let mut datagram_ceiling = None;
     let mut inject_identity = false;
     let mut identity_negative = false;
     let mut message = "hello through the endpoint surface".to_string();
@@ -141,6 +144,9 @@ fn parse_args() -> Result<Cli> {
                 payload_bytes = Some(value()?.parse::<u64>().map_err(|_| usage())?)
             }
             "--datagram" => datagram = true,
+            "--datagram-ceiling" => {
+                datagram_ceiling = Some(value()?.parse::<u32>().map_err(|_| usage())?)
+            }
             "--inject-identity" => inject_identity = true,
             "--identity-negative" => identity_negative = true,
             "--message" => message = value()?,
@@ -159,6 +165,7 @@ fn parse_args() -> Result<Cli> {
         peer_relay,
         payload_bytes,
         datagram,
+        datagram_ceiling,
         inject_identity,
         identity_negative,
         message,
@@ -210,6 +217,7 @@ async fn main() -> Result<()> {
         peer_relay: cli.peer_relay,
         payload_bytes: cli.payload_bytes,
         datagram: cli.datagram,
+        datagram_ceiling: cli.datagram_ceiling,
         inject_identity: cli.inject_identity,
         identity_negative: cli.identity_negative,
         message: cli.message,

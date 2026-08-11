@@ -51,9 +51,11 @@ const READ_MAX: u32 = 16 * 1024;
 /// in-flight import subtask must resolve — the jco discipline).
 const DATAGRAM_COPIES: usize = 3;
 
-/// Polling quantum and bound while waiting for the WebRTC upgrade.
-const UPGRADE_POLL_NS: u64 = 5_000_000;
-const UPGRADE_DEADLINE_POLLS: u32 = 30_000 / 5;
+/// Polling quantum and bound for the demo's bounded waits: the WebRTC
+/// upgrade and the datagram-ceiling rise (both discovered in the
+/// background over the connection's first round trips).
+const POLL_NS: u64 = 5_000_000;
+const DEADLINE_POLLS: u32 = 30_000 / 5;
 
 struct Component;
 
@@ -160,10 +162,10 @@ async fn run_client(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
         let mut polls = 0;
         while conn.path() != PathKind::Webrtc {
             polls += 1;
-            if polls > UPGRADE_DEADLINE_POLLS {
+            if polls > DEADLINE_POLLS {
                 return Err("webrtc upgrade did not complete".into());
             }
-            monotonic_clock::wait_for(UPGRADE_POLL_NS).await;
+            monotonic_clock::wait_for(POLL_NS).await;
         }
     }
 
@@ -192,7 +194,7 @@ async fn run_client(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     // The datagram leg: send after the stream echo (the connection and
     // its path are settled), then wait for the server's echo.
     let datagram = if config.datagram {
-        Some(run_client_datagram(&conn, &config.message).await?)
+        Some(run_client_datagram(&conn, config).await?)
     } else {
         None
     };
@@ -223,11 +225,25 @@ async fn run_client(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
 
 /// The client's datagram echo: send `DATAGRAM_COPIES` copies, await one
 /// echo, assert it round-tripped verbatim.
-async fn run_client_datagram(conn: &Connection, message: &str) -> Result<String, String> {
+///
+/// With `datagram-ceiling` set, first wait (bounded) for
+/// `max-datagram-size` to reach it — the ceiling is discovered per
+/// path and rises over the first round trips — then probe with a
+/// patterned datagram of exactly that size, gating the raised ceiling
+/// end to end.
+async fn run_client_datagram(conn: &Connection, config: &RunConfig) -> Result<String, String> {
+    let payload = match config.datagram_ceiling {
+        Some(bytes) => {
+            await_datagram_ceiling(conn, bytes).await?;
+            // A patterned payload: a truncated or corrupted echo
+            // cannot pass the equality check below.
+            (0..bytes).map(|i| (i % 251) as u8).collect()
+        }
+        None => format!("datagram {}", config.message).into_bytes(),
+    };
     let max = conn
         .max_datagram_size()
         .ok_or("peer does not accept datagrams")?;
-    let payload = format!("datagram {message}").into_bytes();
     if payload.len() > max as usize {
         return Err(format!(
             "demo datagram ({} bytes) exceeds max-datagram-size ({max})",
@@ -246,7 +262,28 @@ async fn run_client_datagram(conn: &Connection, message: &str) -> Result<String,
             echoed.len()
         ));
     }
-    Ok(String::from_utf8_lossy(&echoed).into_owned())
+    Ok(datagram_summary(&echoed))
+}
+
+/// Wait (bounded) for this side's `max-datagram-size` to reach `bytes`.
+///
+/// The ceiling is discovered per path AND per direction: each side's
+/// send limit converges on its own schedule, so a payload that fit the
+/// sender's ceiling may not fit this side's yet (the echo path hits
+/// exactly that).
+async fn await_datagram_ceiling(conn: &Connection, bytes: u32) -> Result<(), String> {
+    let mut polls = 0;
+    while conn.max_datagram_size().unwrap_or(0) < bytes {
+        polls += 1;
+        if polls > DEADLINE_POLLS {
+            return Err(format!(
+                "max-datagram-size stalled at {:?}, needed {bytes}",
+                conn.max_datagram_size()
+            ));
+        }
+        monotonic_clock::wait_for(POLL_NS).await;
+    }
+    Ok(())
 }
 
 async fn run_server(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport, String> {
@@ -272,14 +309,16 @@ async fn run_server(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     send.finish().map_err(fail("finish"))?;
 
     // The datagram leg: receive one (the client sends copies), echo it
-    // verbatim in copies of our own.
+    // verbatim in copies of our own. This side's send ceiling converges
+    // independently of the sender's, so wait for it to cover the echo.
     let datagram = if config.datagram {
         let payload = conn.recv_datagram().await.map_err(fail("recv-datagram"))?;
+        await_datagram_ceiling(&conn, payload.len() as u32).await?;
         for _ in 0..DATAGRAM_COPIES {
             conn.send_datagram(&payload)
                 .map_err(fail("send-datagram"))?;
         }
-        Some(String::from_utf8_lossy(&payload).into_owned())
+        Some(datagram_summary(&payload))
     } else {
         None
     };
@@ -398,6 +437,15 @@ fn path_name(path: PathKind) -> String {
         PathKind::Webrtc => "webrtc",
     }
     .to_string()
+}
+
+/// Render a datagram payload for the report: short text verbatim, bulk
+/// (or non-text) as a length.
+fn datagram_summary(payload: &[u8]) -> String {
+    match std::str::from_utf8(payload) {
+        Ok(text) if payload.len() <= 256 => text.to_string(),
+        _ => format!("{} bytes", payload.len()),
+    }
 }
 
 fn fail(what: &'static str) -> impl Fn(Error) -> String {
