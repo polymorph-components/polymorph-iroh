@@ -232,9 +232,12 @@ ways over UDP against iroh v1.0.3, and against n0's production relay
 infrastructure over wss. `endpoint-demo/` is the first consumer,
 composed via `wac plug` and driven by
 `host-wasmtime/src/bin/endpoint-demo.rs`. Internally: one detached pump
-task per bound endpoint owns all I/O, and resource methods observe its
-consequences by bounded polling on the clock import (cross-task wakeups
-have no channel that works on every host today; see the issues). The
+task per bound endpoint owns all I/O, and wake-ups are event-driven in
+both directions — resource methods kick the pump to flush their
+mutations and park on wakers the pump fires (cross-task wakeups ride
+wit-bindgen's `inter-task-wakeup` channel, delivered by both hosts;
+the bench asserts the endpoint handshake stays within a fixed margin
+of the single-task spike's). The
 JS host for this surface is `host-deltic/`: it drives the endpoint
 component runtime-linked under [deltic](https://github.com/lann/deltic)
 on stock Deno (no transpile step, no engine flag) — the jco host this
