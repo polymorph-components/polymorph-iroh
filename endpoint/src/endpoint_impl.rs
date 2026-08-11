@@ -54,7 +54,7 @@ use crate::bindings::exports::polymorph::iroh::endpoint::{
     GuestEndpointOptions, GuestRecvStream, GuestSendStream, IdentityBorrow, RecvStream, SendStream,
 };
 use crate::bindings::polymorph::iroh::types::{
-    ConnectionState, EndpointAddr, Error, PathKind, TransportAddr,
+    CloseInfo, ConnectionState, EndpointAddr, Error, PathKind, TransportAddr,
 };
 use crate::bindings::wasi::clocks::monotonic_clock;
 use crate::bindings::wit_stream;
@@ -184,6 +184,10 @@ struct ConnEntry {
     connected: bool,
     alpn: Vec<u8>,
     error: Option<Error>,
+    /// The peer's application close, captured at `ConnectionLost`.
+    /// `None` when the connection ends any other way: closed locally,
+    /// idle-timed-out, or lost to a transport error.
+    peer_close: Option<CloseInfo>,
     drained: bool,
     bi_queue: VecDeque<StreamId>,
     uni_queue: VecDeque<StreamId>,
@@ -199,6 +203,7 @@ impl ConnEntry {
             connected: false,
             alpn: Vec::new(),
             error: None,
+            peer_close: None,
             drained: false,
             bi_queue: VecDeque::new(),
             uni_queue: VecDeque::new(),
@@ -636,9 +641,14 @@ fn on_event(
         Event::DatagramReceived | Event::DatagramsUnblocked => {}
         Event::ConnectionLost { reason } => {
             entry.error = Some(match &reason {
-                ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed => {
+                ConnectionError::ApplicationClosed(close) => {
+                    entry.peer_close = Some(CloseInfo {
+                        code: close.error_code.into_inner(),
+                        reason: String::from_utf8_lossy(&close.reason).into_owned(),
+                    });
                     Error::Closed
                 }
+                ConnectionError::LocallyClosed => Error::Closed,
                 other => Error::Other(format!("connection lost: {other}")),
             });
         }
@@ -1587,11 +1597,11 @@ impl GuestConnection for ConnectionRes {
         }
     }
 
-    async fn wait_closed(&self) {
+    async fn wait_closed(&self) -> Option<CloseInfo> {
         let handle = self.handle;
         wait_until(&self.shared, |st| {
             let entry = st.conns.get_mut(&handle).expect("connection entry");
-            (entry.drained || entry.error.is_some()).then_some(())
+            (entry.drained || entry.error.is_some()).then(|| entry.peer_close.clone())
         })
         .await
     }

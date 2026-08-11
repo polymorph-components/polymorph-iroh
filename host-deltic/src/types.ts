@@ -34,6 +34,13 @@ export interface EndpointAddr {
 
 export type ConnectionState = "connecting" | "open" | "closed";
 
+/** The peer's application close, when one was received (`close-info`). */
+export interface CloseInfo {
+  /** u64 in WIT: QUIC application close codes reach 2^62 - 1. */
+  code: bigint;
+  reason: string;
+}
+
 export type PathKind = "relay" | "ip" | "webrtc";
 
 /** `polymorph:iroh/types@0.1.0`'s `error` variant. */
@@ -115,7 +122,8 @@ export interface Connection {
   acceptBi(): Promise<[SendStream, RecvStream]>;
   acceptUni(): Promise<RecvStream>;
   close(code: number, reason: string): Promise<void>;
-  waitClosed(): Promise<void>;
+  /** `option<close-info>`: `undefined` unless the peer's application close arrived. */
+  waitClosed(): Promise<CloseInfo | undefined>;
   [Symbol.dispose](): void;
   drop(): void;
 }
