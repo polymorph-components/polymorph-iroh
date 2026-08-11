@@ -125,7 +125,7 @@ run_pair "endpoint-relay-wasmtime-wasmtime" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --datagram -- \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
-        --datagram --message "matrix endpoint" --peer
+        --datagram --datagram-ceiling 3900 --message "matrix endpoint" --peer
 
 # Embedder-injected identity: both sides mint an Ed25519 pair inside
 # the demo component through polymorph:webcrypto and construct the
@@ -159,12 +159,15 @@ run_pair "endpoint-udp-wasmtime-wasmtime" \
 # unreliable channel. connect() prefers the webrtc entry with no relay
 # fallback, so a passing echo is the assertion that QUIC flowed over
 # the channel; the relay carried only signaling for this connection.
+# The datagram ceiling probe (issue #47) asserts the channel path's
+# discovered MTU carries a datagram far over the 1200-byte floor; the
+# relay row above asserts the same of the relay path.
 run_pair "endpoint-webrtc-wasmtime-wasmtime" \
     env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
         --role server --relay "$RELAY_URL" --webrtc --datagram -- \
     env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --datagram \
-        --message "matrix webrtc" --peer
+        --datagram-ceiling 3900 --message "matrix webrtc" --peer
 
 # Cross-relay: the server homes on relay B, the client on relay A. The
 # client's addr entries name relay B, so the dial opens a pooled

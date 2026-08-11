@@ -78,6 +78,11 @@ const MESSAGE = "hello through the endpoint surface";
 const CLOSE_CODE = 17;
 const CLOSE_REASON = "demo done";
 
+// The datagram ceiling the relay path must discover (issue #47): the
+// implementation's 4096-byte packet ceiling minus QUIC overhead lands
+// a little above this.
+const DATAGRAM_CEILING = 3900;
+
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
  * budget is per-shape because the shapes lose the race at very different
@@ -342,7 +347,32 @@ async function main(): Promise<number> {
     // -- 2 -------------------------------------------------------------------
     await scenario(2, "relay echo between two endpoint instances", async (v) => {
       resetUdpCallLog();
-      const r = await echoWithRetries(relay, v, { webrtc: false, parkAccept: false });
+      let ceiling = 0;
+      let ceilingMs = -1;
+      const r = await echoWithRetries(relay, v, {
+        webrtc: false,
+        parkAccept: false,
+        onExchange: async (ctx) => {
+          // max-datagram-size is path-dependent and not latched
+          // (wit/iroh.wit): the relay wire has no real packet-size
+          // limit, so per-path discovery must raise the ceiling well
+          // past the 1200-byte floor. Poll for the rise, bounded.
+          const started = performance.now();
+          for (let i = 0; i < 100; i++) {
+            const size = await ctx.clientConn.maxDatagramSize();
+            if (size !== undefined && size >= DATAGRAM_CEILING) {
+              ceiling = size;
+              ceilingMs = performance.now() - started;
+              return;
+            }
+            await settle(100);
+          }
+          ctx.notes.push(
+            `max-datagram-size never reached ${DATAGRAM_CEILING} within 10 s ` +
+              `(last: ${await ctx.clientConn.maxDatagramSize()})`,
+          );
+        },
+      });
       check(v, r.received === MESSAGE, `the server received ${JSON.stringify(r.received)}`);
       check(v, r.echoed === MESSAGE.toUpperCase(), `the client read back the echo`);
       check(v, r.clientPath === "relay", `connection.path is "relay" on the client`);
@@ -352,6 +382,12 @@ async function main(): Promise<number> {
         r.serverCloseInfo.code === BigInt(CLOSE_CODE) && r.serverCloseInfo.reason === CLOSE_REASON,
         `the server read the client's application close (${CLOSE_CODE}, ` +
           `${JSON.stringify(CLOSE_REASON)}) from wait-closed`,
+      );
+      check(
+        v,
+        ceiling >= DATAGRAM_CEILING,
+        `max-datagram-size rose to ${ceiling} (>= ${DATAGRAM_CEILING}) on the relay path` +
+          (ceilingMs >= 0 ? ` after ${ceilingMs.toFixed(0)} ms` : ""),
       );
       check(v, udpCallLog().length === 0, "zero wasi:sockets calls (relay wire only)");
       v.detail = `handshake ${r.handshakeMs.toFixed(0)} ms, roundtrip ${

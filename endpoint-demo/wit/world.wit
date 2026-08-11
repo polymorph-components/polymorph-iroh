@@ -46,6 +46,12 @@ interface demo {
         /// asserts the server's echo. Exercises `send-datagram` /
         /// `recv-datagram` end to end.
         datagram: bool,
+        /// With `datagram`: wait (bounded) for `max-datagram-size` to
+        /// reach this many bytes — the ceiling each path discovers,
+        /// well above 1200 on wires with no real packet-size limit —
+        /// then exchange one datagram of exactly this size instead of
+        /// the small message.
+        datagram-ceiling: option<u32>,
         /// Construct the endpoint's identity from webcrypto key handles
         /// minted in this component (exercising `identity-from-keys`)
         /// instead of through `identity-generate`. Either way the demo
