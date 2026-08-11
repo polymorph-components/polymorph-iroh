@@ -570,37 +570,7 @@ async function main(): Promise<number> {
     });
 
     // -- 5 -------------------------------------------------------------------
-    await scenario(5, "teardown: close + wait-closed, relay reaped", async (v) => {
-      const inst = await newEndpointInstance({ label: "teardown" });
-      const ep = await deadline(
-        bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),
-        30_000,
-        "bind",
-      );
-      await deadline(ep.close(), 10_000, "endpoint close");
-      // Idempotent per wit/iroh.wit ("Idempotent. Dropping the resource
-      // without calling `close` implies `close`.").
-      await deadline(ep.close(), 10_000, "endpoint close (again)");
-      ep.drop();
-      await settle(200);
-      const panics = takeGuestPanics();
-      check(v, panics.length === 0, `no guest trap during teardown (${panics.join("; ")})`);
-
-      await relay.stop();
-      const reaped = !(await portListening(RELAY_PORT));
-      check(
-        v,
-        reaped || relayWasAdopted,
-        relayWasAdopted
-          ? "the relay was pre-existing and adopted, so this run does not own its lifetime"
-          : "iroh-relay --dev was reaped",
-      );
-      v.detail = relayWasAdopted
-        ? "endpoint closed; relay adopted (not owned)"
-        : "endpoint closed; relay reaped";
-    });
-    // -- 6 -------------------------------------------------------------------
-    await scenario(6, "stream terminal outcomes: reset and close, never a clean FIN", async (v) => {
+    await scenario(5, "stream terminal outcomes: reset and close, never a clean FIN", async (v) => {
       let r: TerminalReport | undefined;
       let lastError = "";
       let panics = 0;
@@ -637,6 +607,39 @@ async function main(): Promise<number> {
         `wait-closed still carries the close after the failed read: ${r.closeInfo}`,
       );
       v.detail = `reset(77) latched; close read as ${r.closed} with close-info ${r.closeInfo}`;
+    });
+
+    // -- 6 -------------------------------------------------------------------
+    // Last by necessity: this scenario stops the relay every later
+    // scenario would need.
+    await scenario(6, "teardown: close + wait-closed, relay reaped", async (v) => {
+      const inst = await newEndpointInstance({ label: "teardown" });
+      const ep = await deadline(
+        bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),
+        30_000,
+        "bind",
+      );
+      await deadline(ep.close(), 10_000, "endpoint close");
+      // Idempotent per wit/iroh.wit ("Idempotent. Dropping the resource
+      // without calling `close` implies `close`.").
+      await deadline(ep.close(), 10_000, "endpoint close (again)");
+      ep.drop();
+      await settle(200);
+      const panics = takeGuestPanics();
+      check(v, panics.length === 0, `no guest trap during teardown (${panics.join("; ")})`);
+
+      await relay.stop();
+      const reaped = !(await portListening(RELAY_PORT));
+      check(
+        v,
+        reaped || relayWasAdopted,
+        relayWasAdopted
+          ? "the relay was pre-existing and adopted, so this run does not own its lifetime"
+          : "iroh-relay --dev was reaped",
+      );
+      v.detail = relayWasAdopted
+        ? "endpoint closed; relay adopted (not owned)"
+        : "endpoint closed; relay reaped";
     });
   } finally {
     await relay.stop();
