@@ -29,7 +29,7 @@ use bindings::polymorph::iroh::identity_from_keys::from_keys;
 use bindings::polymorph::iroh::identity_generate::generate;
 use bindings::polymorph::iroh::types::{EndpointAddr, Error, PathKind, TransportAddr};
 use bindings::wasi::clocks::monotonic_clock;
-use polymorph_webcrypto_guest::{ed25519, SigningKeyOptions};
+use polymorph_webcrypto_guest::{ecdsa, ed25519, SigningKeyOptions};
 
 /// The demo's ALPN protocol.
 const ALPN: &[u8] = b"iroh-demo/0";
@@ -51,6 +51,10 @@ struct Component;
 
 impl Guest for Component {
     async fn run(config: RunConfig) -> Result<RunReport, String> {
+        if config.identity_negative {
+            return run_identity_negative().await;
+        }
+
         // The identity is explicit: constructed through one of the
         // constructor interfaces, then handed to the options. The
         // inject-identity path exercises from-keys (webcrypto handles
@@ -280,6 +284,88 @@ async fn run_server(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
         roundtrip_ms: 0,
         received,
         datagram,
+    })
+}
+
+/// Mint one non-extractable Ed25519 signing pair.
+async fn mint_pair(
+    what: &str,
+) -> Result<
+    (
+        polymorph_webcrypto_guest::SigningKey,
+        polymorph_webcrypto_guest::VerifyingKey,
+    ),
+    String,
+> {
+    ed25519::generate_key(SigningKeyOptions {
+        sign: true,
+        extractable: false,
+    })
+    .await
+    .map_err(|e| format!("mint {what}: {e}"))
+}
+
+/// The `identity-from-keys` failure-path probes (see the `run-config`
+/// field doc). Every assertion is in-guest; a passing run reports the
+/// control identity's endpoint-id and performs no bind.
+async fn run_identity_negative() -> Result<RunReport, String> {
+    // Control: a matched pair constructs, and the identity reports the
+    // pair's public key — proving the rejections below are judgments,
+    // not environmental failures.
+    let (signing, verifying) = mint_pair("control pair").await?;
+    let expected = verifying
+        .export_key_raw()
+        .await
+        .map_err(|e| format!("export control public key: {e}"))?;
+    let control = from_keys(signing.into_raw(), verifying.into_raw())
+        .await
+        .map_err(fail("from-keys (control)"))?;
+    if control.endpoint_id() != expected {
+        return Err("control identity does not report the pair's public key".into());
+    }
+
+    // A mismatched pair: the signing key of one pair, the verifying key
+    // of another. The possession probe must reject it.
+    let (signing, _verifying) = mint_pair("mismatch pair a").await?;
+    let (_signing, verifying) = mint_pair("mismatch pair b").await?;
+    match from_keys(signing.into_raw(), verifying.into_raw()).await {
+        Err(Error::InvalidArgument(_)) => {}
+        Ok(_) => return Err("from-keys accepted a mismatched pair".into()),
+        Err(other) => {
+            return Err(format!(
+                "from-keys rejected a mismatched pair with the wrong error: {other:?}"
+            ))
+        }
+    }
+
+    // A non-Ed25519 pair: matched halves, wrong algorithm.
+    let (signing, verifying) = ecdsa::generate_key(
+        ecdsa::EcdsaVariant::P256Sha256,
+        SigningKeyOptions {
+            sign: true,
+            extractable: false,
+        },
+    )
+    .await
+    .map_err(|e| format!("mint ecdsa pair: {e}"))?;
+    match from_keys(signing.into_raw(), verifying.into_raw()).await {
+        Err(Error::InvalidArgument(_)) => {}
+        Ok(_) => return Err("from-keys accepted an ECDSA pair".into()),
+        Err(other) => {
+            return Err(format!(
+                "from-keys rejected an ECDSA pair with the wrong error: {other:?}"
+            ))
+        }
+    }
+
+    Ok(RunReport {
+        endpoint_id: hex::encode(control.endpoint_id()),
+        peer_id: String::new(),
+        path: String::new(),
+        handshake_ms: 0,
+        roundtrip_ms: 0,
+        received: "identity negative probes passed".into(),
+        datagram: None,
     })
 }
 

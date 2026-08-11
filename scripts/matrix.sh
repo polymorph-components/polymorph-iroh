@@ -250,6 +250,21 @@ run_client_failure "endpoint-negative-absent-peer" 0 \
     timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --peer
 
+# Identity constructor failure paths, asserted in-guest: from-keys must
+# reject a mismatched Ed25519 pair and a non-Ed25519 (ECDSA) pair with
+# invalid-argument, and accept the matched control pair. A single
+# process; no bind, relay traffic, or peer involved (the relay URL just
+# satisfies the driver's CLI).
+name="endpoint-negative-identity-from-keys"
+if timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    --identity-negative > "$LOGDIR/$name.log" 2>&1 \
+    && grep -q "^OK:" "$LOGDIR/$name.log"; then
+    echo "PASS $name"
+else
+    echo "FAIL $name (logs in $LOGDIR)"
+    FAILURES=$((FAILURES + 1))
+fi
+
 # --------------------------------------------------------------------------
 
 if [ "$FAILURES" != 0 ]; then

@@ -90,6 +90,7 @@ struct Cli {
     payload_bytes: Option<u64>,
     datagram: bool,
     inject_identity: bool,
+    identity_negative: bool,
     message: String,
 }
 
@@ -99,7 +100,7 @@ fn usage() -> wasmtime::Error {
          --relay <relay-url> [--peer <endpoint-id-hex>] [--alpn A] \
          [--udp-bind <ip:port>] [--direct <ip:port>] [--webrtc] \
          [--peer-relay <relay-url>] [--payload-bytes N] [--datagram] \
-         [--inject-identity] [--message M]",
+         [--inject-identity] [--identity-negative] [--message M]",
     )
 }
 
@@ -117,6 +118,7 @@ fn parse_args() -> Result<Cli> {
     let mut payload_bytes = None;
     let mut datagram = false;
     let mut inject_identity = false;
+    let mut identity_negative = false;
     let mut message = "hello through the endpoint surface".to_string();
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or_else(usage);
@@ -140,6 +142,7 @@ fn parse_args() -> Result<Cli> {
             }
             "--datagram" => datagram = true,
             "--inject-identity" => inject_identity = true,
+            "--identity-negative" => identity_negative = true,
             "--message" => message = value()?,
             _ => return Err(usage()),
         }
@@ -157,6 +160,7 @@ fn parse_args() -> Result<Cli> {
         payload_bytes,
         datagram,
         inject_identity,
+        identity_negative,
         message,
     })
 }
@@ -207,6 +211,7 @@ async fn main() -> Result<()> {
         payload_bytes: cli.payload_bytes,
         datagram: cli.datagram,
         inject_identity: cli.inject_identity,
+        identity_negative: cli.identity_negative,
         message: cli.message,
     };
     let report = store

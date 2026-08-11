@@ -52,6 +52,12 @@ interface demo {
         /// fails unless the endpoint reports the constructed identity's
         /// public key as its `endpoint-id`.
         inject-identity: bool,
+        /// Probe the identity constructor's failure paths instead of
+        /// running the echo: `identity-from-keys` must reject a
+        /// mismatched Ed25519 pair and a non-Ed25519 (ECDSA) pair with
+        /// `invalid-argument`, and must accept a matched control pair.
+        /// The run binds nothing and needs no relay or peer.
+        identity-negative: bool,
         /// The application message the client sends (the server echoes it).
         message: string,
     }
