@@ -49,9 +49,9 @@ export interface GuestOptions {
 
 /**
  * The full import record for the spike guests: deltic's wasi-shims
- * baseline, with the synthetic network fragment (sockets.ts) replacing
- * the tier-(a) poll/clock stubs, and stdio routed to the console
- * line-buffered.
+ * baseline (whose A5 parking kernel serves poll/clock suspension), the
+ * synthetic network fragment (sockets.ts), and stdio routed to the
+ * console line-buffered.
  */
 export function guestImports(options: GuestOptions): Record<string, unknown> {
   const stdout = new OutputStream(lineSink("guest-out", console.log));
@@ -69,8 +69,8 @@ export function guestImports(options: GuestOptions): Record<string, unknown> {
  *
  * `artifacts` is anything `instantiate` accepts (embedder-api A3): the
  * translated `ComponentArtifacts`, or `{ componentBytes, translator }`
- * for in-process translation. jspi mode is selected by the `suspending()`
- * markers in sockets.ts; no explicit option is needed.
+ * for in-process translation. jspi mode is selected by wasi-shims' own
+ * `suspending()` markers (the A5 kernel); no explicit option is needed.
  */
 export async function runGuest(
   artifacts: ComponentArtifacts | {

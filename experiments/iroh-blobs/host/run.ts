@@ -59,7 +59,6 @@ clearTimeout(watchdog);
 
 console.log(
   `[driver] done in ${((performance.now() - t0) / 1000).toFixed(1)}s; ` +
-    `polls=${stats.pollCalls} (suspended ${stats.pollSuspends}) ` +
     `datagrams in/out=${stats.datagramsIn}/${stats.datagramsOut} ` +
     `ws connections=${bridgeStats.connections} ws msgs in/out=${bridgeStats.wsIn}/${bridgeStats.wsOut} ` +
     `webrtc channels=${webrtcStats.channelsOpened} msgs in/out=${webrtcStats.in}/${webrtcStats.out} ` +

@@ -7,33 +7,28 @@
 // to host-side bridges by well-known port (bridge.ts, webrtc-bridge.ts)
 // or by full synthetic destination address (the issue #26 overlay).
 //
-// deltic's own `wasi-shims` package deliberately stops at tier (a)/(b) of
-// the embedder contract's p2 strategy: its pollables are always-ready
-// stubs and its clock subscriptions never fire, which busy-loops a guest
-// that genuinely parks. The iroh guests park constantly (tokio's reactor
-// blocks in `wasi:io/poll#poll`), so this module takes the contract's
-// tier (c): `poll` and `Pollable.block` are sync-typed WIT functions
-// implemented as Promise-returning JS, declared with the `suspending()`
-// marker (embedder-api amendment A1) — the marked import parks the
-// calling wasm frame on JSPI, and the marker itself selects jspi mode.
+// Parking is deltic's, not this module's: wasi-shims' kernel (embedder-api
+// A5) serves `wasi:io/poll` and the clock subscriptions with real
+// suspension, and its `Pollable` is publicly constructible as the interop
+// seam — this module only mints `new Pollable(ready, wait)` over its
+// datagram queues (the promise-swap wake pattern the kernel documents).
+// Interfaces the guest links but can never use functionally (tcp,
+// ip-name-lookup) are typed stubs that fail with WIT error values, not
+// traps.
 //
 // Registered under compatibility-track keys (`@0.2`), so one provider
-// serves whatever 0.2.x the guest binary names. Interfaces the guest
-// links but can never use functionally (tcp, ip-name-lookup) are typed
-// stubs that fail with WIT error values, not traps.
+// serves whatever 0.2.x the guest binary names.
 //
-// Environment-portable: standard globals only (`performance`, `crypto`,
-// `console`); works under Deno and in browsers.
+// Environment-portable: standard globals only; works under Deno and in
+// browsers.
 
-import { suspending, WitError } from "@deltic/runtime/embedder";
+import { WitError } from "@deltic/runtime/embedder";
+import { Pollable } from "@deltic/wasi-shims";
 
 // ---------------------------------------------------------------------------
 // instrumentation
 
 export const stats = {
-  pollCalls: 0,
-  pollSuspends: 0,
-  blocks: 0,
   datagramsIn: 0, // bridge -> guest
   datagramsOut: 0, // guest -> bridge
 };
@@ -64,85 +59,14 @@ export interface OutgoingDatagram {
 }
 
 // ---------------------------------------------------------------------------
-// wasi:io/poll — tier (c): pollables that really park
-
-/** Nanosecond monotonic clock over `performance.now()`. */
-const hrnow = (): bigint => BigInt(Math.round(performance.now() * 1e6));
-
-export class Pollable {
-  #readyFn: () => boolean;
-  #waitFn: () => Promise<void>;
-  constructor(readyFn: () => boolean, waitFn: () => Promise<void>) {
-    this.#readyFn = readyFn;
-    this.#waitFn = waitFn;
-  }
-  ready(): boolean {
-    return this.#readyFn();
-  }
-  /** Sync WIT function that genuinely parks: tier (c), `@suspending`. */
-  @suspending
-  async block(): Promise<void> {
-    stats.blocks++;
-    while (!this.#readyFn()) await this.#waitFn();
-  }
-  waitPromise(): Promise<void> {
-    return this.#waitFn();
-  }
-}
-
+// pollable minting
+//
 // Every `own<pollable>` handed to the guest is a FRESH instance: two own
 // handles sharing one host instance alias one registry rep, and the first
 // guest-side drop would kill both (HostResourceRegistry semantics).
-const ready = (): Pollable => new Pollable(() => true, () => Promise.resolve());
+
+const ready = (): Pollable => new Pollable();
 const never = (): Pollable => new Pollable(() => false, () => new Promise<void>(() => {}));
-
-/** Duck-typed views of foreign pollables (deltic wasi-shims tier-(a) ones). */
-interface PollableLike {
-  ready(): boolean;
-  waitPromise?: () => Promise<void>;
-}
-
-/**
- * `wasi:io/poll#poll` — sync WIT, Promise-returning JS (tier (c)).
- *
- * The list mixes this module's pollables with foreign ones (deltic
- * wasi-shims' stdio/filesystem pollables are always-ready stubs without
- * `waitPromise`), so readiness is duck-typed: a foreign pollable that is
- * not ready can never wake us, exactly like the NEVER pollable.
- */
-async function poll(list: PollableLike[]): Promise<number[]> {
-  stats.pollCalls++;
-  for (;;) {
-    const ready: number[] = [];
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].ready()) ready.push(i);
-    }
-    if (ready.length) return ready;
-    stats.pollSuspends++;
-    await Promise.race(list.map((p) => p.waitPromise?.() ?? new Promise<void>(() => {})));
-  }
-}
-
-// ---------------------------------------------------------------------------
-// wasi:clocks/monotonic-clock — subscriptions that really fire
-
-function timerPollable(deadlineNs: bigint): Pollable {
-  return new Pollable(
-    () => hrnow() >= deadlineNs,
-    () =>
-      new Promise((r) => {
-        const ms = Number(deadlineNs - hrnow()) / 1e6;
-        setTimeout(r, Math.max(0, ms));
-      }),
-  );
-}
-
-const monotonicClock = {
-  now: hrnow,
-  resolution: (): bigint => 1_000n,
-  subscribeInstant: (when: bigint): Pollable => timerPollable(when),
-  subscribeDuration: (ns: bigint): Pollable => timerPollable(hrnow() + ns),
-};
 
 // ---------------------------------------------------------------------------
 // wasi:sockets — the synthetic network (multi-socket)
@@ -405,15 +329,12 @@ export class ResolveAddressStream {
 // the import fragment
 
 /**
- * The synthetic-network provider fragment (track keys), spread AFTER
- * deltic's `wasiShims(...)` so the tier-(c) `wasi:io/poll` and
- * `wasi:clocks/monotonic-clock` implementations replace the stub tiers
- * (same keys, object-spread override).
+ * The synthetic-network provider fragment (track keys), spread next to
+ * deltic's `wasiShims(...)`, whose A5 kernel serves `wasi:io/poll` and
+ * the clock subscriptions these sockets' pollables park under.
  */
 export function syntheticNetImports(): Record<string, unknown> {
   return {
-    "wasi:io/poll@0.2": { Pollable, poll: suspending(poll) },
-    "wasi:clocks/monotonic-clock@0.2": monotonicClock,
     "wasi:sockets/network@0.2": { Network },
     "wasi:sockets/instance-network@0.2": {
       instanceNetwork: (): Network => theNetwork,

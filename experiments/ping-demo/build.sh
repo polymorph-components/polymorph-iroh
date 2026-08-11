@@ -33,7 +33,7 @@ shim=$(deno run --config ../../host-deltic/deno.json --frozen \
 # repo's pinned tag; the raw URL below must carry the same tag (the pin
 # gate in host-deltic/fetch-translator.ts checks it).
 deno run --config "$SPIKE_HOST/deno.json" --allow-read --allow-write \
-    "https://raw.githubusercontent.com/lann/deltic/pre-eb3f8d0/tools/translate/main.ts" \
+    "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/tools/translate/main.ts" \
     "$GUEST_WASM" -o "$SITE/ping-demo.plan.json" --shim "$shim"
 
 cp "$GUEST_WASM" "$SITE/ping-demo.component.wasm"

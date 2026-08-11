@@ -16,9 +16,9 @@
 // `deno install --allow-scripts=npm:node-datachannel` in this directory to
 // regenerate it (commit the diff).
 
-const TAG = "pre-eb3f8d0";
+const TAG = "pre-a67ee83";
 const TRANSLATOR_SHA256 =
-  "6d02b363785593595a789d083cda0aebb1de790726718ccf543198354fa3870c";
+  "2a2c9bbd3dfc009f301bdce9101116b237593bd8e17a06f412b000e2d4d4c220";
 const ASSET = "deltic-translator-shim.wasm";
 
 const HERE = new URL(".", import.meta.url);
