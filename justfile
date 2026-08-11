@@ -69,11 +69,19 @@ deltic-setup:
 exam-deltic: build-components relay-build deltic-setup
     #!/usr/bin/env bash
     set -euo pipefail
-    shim=$(deno run --config host-deltic/deno.json --frozen \
-        --allow-read=. --allow-write=target/deltic \
-        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-        host-deltic/fetch-translator.ts)
-    DELTIC_TRANSLATOR="$shim" timeout 600 deno run -A --config host-deltic/deno.json --frozen \
+    # One deltic version repo-wide (host-deltic/README.md "The pin"): the
+    # exam is the natural fail-loud point, replacing the retired
+    # fetch-translator gate. Every jsr:@deltic/* pin in both configs must
+    # name the SAME prerelease — a translator/runtime split is exactly the
+    # plan-format skew (or double-runtime WitError identity break) the
+    # packaged translator exists to rule out.
+    v=$(grep -ho 'jsr:@deltic/[a-z-]*@[^/"]*' host-deltic/deno.json \
+        experiments/iroh-relay-ws/host/deno.json | sed 's/.*@//' | sort -u)
+    if [ "$(printf '%s\n' "$v" | wc -l)" != 1 ]; then
+        echo "deltic pin drift across deno.jsons: $v" >&2
+        exit 1
+    fi
+    timeout 600 deno run -A --config host-deltic/deno.json --frozen \
         host-deltic/src/run-endpoint.ts
 
 # The measured-claims gate: per-wire latency/throughput medians,

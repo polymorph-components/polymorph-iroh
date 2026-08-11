@@ -3,9 +3,10 @@
 // WebRTC). The guest prints its own results; this driver adds a
 // watchdog and the shim/bridge counters.
 //
-// Runs on stock Deno: run.sh fetches the pinned translator shim and
-// exports its path as DELTIC_TRANSLATOR.
+// Runs on stock Deno; the translator is `@deltic/translator`'s packaged
+// asset, loaded through the module graph.
 
+import { defaultTranslator } from "@deltic/translator";
 import { stats } from "./sockets.ts";
 import { bridgeStats } from "./bridge.ts";
 import { webrtcStats } from "./webrtc-bridge.ts";
@@ -28,19 +29,10 @@ const watchdog = setTimeout(() => {
   Deno.exit(1);
 }, WATCHDOG_MS);
 
-const shimPath = Deno.env.get("DELTIC_TRANSLATOR");
-if (!shimPath) {
-  console.error(
-    "[driver] DELTIC_TRANSLATOR is unset — run this through run.sh, which " +
-      "fetches the pinned translator shim (host-deltic/fetch-translator.ts).",
-  );
-  Deno.exit(2);
-}
-
 const t0 = performance.now();
 const artifacts = {
   componentBytes: await Deno.readFile(GUEST_WASM),
-  translator: await Deno.readFile(shimPath),
+  translator: await defaultTranslator(),
 };
 console.log(`[driver] loaded in ${(performance.now() - t0).toFixed(1)}ms`);
 

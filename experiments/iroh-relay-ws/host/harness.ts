@@ -14,6 +14,7 @@
 
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";
 import { artifactsFromEnvelope, instantiate } from "@deltic/runtime/embedder";
+import type { Translator } from "@deltic/runtime/shim";
 import { OutputStream, wasiShims } from "@deltic/wasi-shims";
 import { syntheticNetImports } from "./sockets.ts";
 
@@ -69,13 +70,14 @@ export function guestImports(options: GuestOptions): Record<string, unknown> {
  *
  * `artifacts` is anything `instantiate` accepts (embedder-api A3): the
  * translated `ComponentArtifacts`, or `{ componentBytes, translator }`
- * for in-process translation. jspi mode is selected by wasi-shims' own
- * `suspending()` markers (the A5 kernel); no explicit option is needed.
+ * with `@deltic/translator`'s instance for in-process translation. jspi
+ * mode is selected by wasi-shims' own `suspending()` markers (the A5
+ * kernel); no explicit option is needed.
  */
 export async function runGuest(
   artifacts: ComponentArtifacts | {
     componentBytes: Uint8Array;
-    translator: Uint8Array;
+    translator: Uint8Array | Translator;
   },
   imports: Record<string, unknown>,
 ): Promise<void> {

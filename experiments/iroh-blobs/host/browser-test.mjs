@@ -2,9 +2,10 @@
 // live relay→webrtc migration + blob transfer happened. Companion to
 // run.ts (Deno path).
 //
-// - fetches the pinned deltic translator shim (host-deltic/fetch-translator.ts)
-//   and bundles the page driver with `deno bundle --platform browser`,
-// - serves the repository root over HTTP (the guest and translator fetches
+// - pre-translates the guest (translate.ts, embedder-api A4 envelope) and
+//   bundles the page driver with `deno bundle --platform browser` — the
+//   page fetches component + envelope; no translator ships to the browser,
+// - serves the repository root over HTTP (the guest and envelope fetches
 //   resolve there, and COOP/COEP headers buy 5us timers for the guest's
 //   RTT measurements),
 // - reuses a running iroh-relay on 127.0.0.1:3340 or starts one,
@@ -19,13 +20,17 @@ import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { extname, join, normalize, relative } from "node:path";
+import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const HOST_DIR = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const PAGE_PATH = "/experiments/iroh-blobs/host/browser.html";
+const GUEST_WASM = join(
+  HOST_DIR,
+  "../guest/target/wasm32-wasip2/release/iroh-blobs-guest.wasm",
+);
 const RELAY_BIN = join(ROOT, ".deps/iroh/target/release/iroh-relay");
 const TIMEOUT_MS = 90_000;
 
@@ -39,20 +44,19 @@ const MIME = {
 
 const run = promisify(execFile);
 
-/** Fetch (cached) the pinned translator shim; return its URL path under ROOT. */
-async function fetchTranslator() {
-  const { stdout } = await run("deno", [
+/** Pre-translate the guest (A4): the page fetches this envelope. */
+async function translateGuest() {
+  await run("deno", [
     "run",
     "--config",
-    join(ROOT, "host-deltic/deno.json"),
+    join(HOST_DIR, "../../iroh-relay-ws/host/deno.json"),
     "--frozen",
     `--allow-read=${ROOT}`,
-    `--allow-write=${join(ROOT, "target/deltic")}`,
-    "--allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com",
-    join(ROOT, "host-deltic/fetch-translator.ts"),
-  ]);
-  const path = stdout.trim();
-  return `/${relative(ROOT, path).split("\\").join("/")}`;
+    `--allow-write=${join(HOST_DIR, "dist")}`,
+    join(HOST_DIR, "../../iroh-relay-ws/host/translate.ts"),
+    GUEST_WASM,
+    join(HOST_DIR, "dist/iroh-blobs-guest.plan.json"),
+  ], { cwd: HOST_DIR });
 }
 
 async function bundleEntry() {
@@ -133,14 +137,12 @@ async function runPage(browser, url, lines) {
 }
 
 const headed = process.argv.includes("--headed");
-console.log("[harness] fetching translator + bundling the page driver");
-const translatorPath = await fetchTranslator();
+console.log("[harness] translating the guest + bundling the page driver");
+await translateGuest();
 await bundleEntry();
 const relay = await ensureRelay();
 const server = await serveRoot();
-const url = `http://127.0.0.1:${server.address().port}${PAGE_PATH}?translator=${
-  encodeURIComponent(translatorPath)
-}`;
+const url = `http://127.0.0.1:${server.address().port}${PAGE_PATH}`;
 console.log(`[harness] serving ${url}`);
 
 const lines = [];

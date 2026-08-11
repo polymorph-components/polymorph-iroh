@@ -1,17 +1,21 @@
 {
-  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc,webcrypto}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof WitError` holds across every boundary. The npm mappings serve the webrtc module's bare `node-datachannel`/`werift` specifiers, which resolve against THIS config when run-endpoint.ts is the entry module.",
+  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc,webcrypto}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof WitError` holds across every boundary. deltic arrives as exactly-pinned JSR prereleases (0.1.0-pre.g<shorthash> names one upstream commit; @deltic/translator ships the translator wasm for the SAME commit, so the plan-format coupling is self-consistent per graph); deno.lock carries integrity, enforced with --frozen. The version matches experiments/iroh-relay-ws/host/deno.json by repo convention (see README.md, 'The pin'; exam-deltic asserts it). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @deltic prereleases resolve. The npm mappings serve the webrtc module's bare specifiers, which resolve against this config as the entry import map.",
   "nodeModulesDir": "auto",
+  "minimumDependencyAge": {
+    "age": "P1D",
+    "exclude": ["jsr:@deltic/*"]
+  },
   "imports": {
-    "@deltic/runtime/embedder": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/runtime/src/embedder/mod.ts",
-    "@deltic/runtime/shim": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/runtime/src/shim/mod.ts",
-    "@deltic/wasi-shims": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/wasi-shims/src/mod.ts",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.ga67ee83/embedder",
+    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.ga67ee83",
+    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.ga67ee83",
     "@polymorph/webcrypto-deltic": "../.deps/webcrypto/js/deltic/src/mod.ts",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "werift": "npm:werift@0.22.2"
   },
   "tasks": {
-    "check": "deno check src fetch-translator.ts",
+    "check": "deno check src",
     "exam": "deno run -A src/run-endpoint.ts"
   }
 }
