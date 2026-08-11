@@ -25,8 +25,7 @@ use crate::bindings::polymorph::webrtc_datachannels::connections::{
 use crate::bindings::polymorph::webrtc_datachannels::types::{
     DataChannelState, IceCandidate, Message as ChannelMessage, SdpType, SessionDescription,
 };
-use crate::bindings::wasi::clocks::monotonic_clock;
-use crate::endpoint_impl::{Shared, POLL_NS};
+use crate::endpoint_impl::{wait_until, Shared};
 
 /// The first byte of every signaling datagram on the relay.
 pub const SIGNAL_PREFIX: u8 = 0x00;
@@ -131,28 +130,31 @@ fn publish(shared: &Shared, peer: [u8; 32], signal: &Signal) -> Result<(), Error
     Ok(())
 }
 
-/// The peer's next signal: polls the inbox the pump fills. `Ok(None)`
-/// once the peer sends `done`; errors on the deadline or endpoint close.
+/// The peer's next signal, from the inbox the pump fills (arrivals wake
+/// the parked waiter; the deadline is observed at the pump's tick).
+/// `Ok(None)` once the peer sends `done`; errors on the deadline or
+/// endpoint close.
 async fn next_signal(
     shared: &Shared,
     peer: [u8; 32],
     started: Instant,
 ) -> Result<Option<Signal>, Error> {
     loop {
-        let payload = {
-            let mut st = shared.borrow_mut();
+        let payload = wait_until(shared, move |st| {
             if st.is_closed_or_dead() {
-                return Err(Error::Closed);
+                return Some(Err(Error::Closed));
             }
-            st.pop_signal_inbox(peer)
-        };
-        let Some(payload) = payload else {
+            if let Some(payload) = st.pop_signal_inbox(peer) {
+                return Some(Ok(payload));
+            }
             if started.elapsed() > SIGNAL_DEADLINE {
-                return Err(Error::ConnectFailed("webrtc signaling timed out".into()));
+                return Some(Err(Error::ConnectFailed(
+                    "webrtc signaling timed out".into(),
+                )));
             }
-            monotonic_clock::wait_for(POLL_NS).await;
-            continue;
-        };
+            None
+        })
+        .await?;
         let signal: Signal = match serde_json::from_slice(&payload) {
             Ok(signal) => signal,
             // A malformed signal is the peer's bug; skip it.

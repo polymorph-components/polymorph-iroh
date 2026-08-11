@@ -1,17 +1,29 @@
 //! The endpoint surface implementation: noq-proto state shared between
 //! the exported resources and one detached pump task per bound endpoint.
 //!
-//! Resource methods mutate the shared state directly and wait for the
-//! pump's consequences by bounded polling on the clock import — never by
-//! parking on a waker another task fires. Cross-task wakeups have no
-//! portable channel today: wit-bindgen's `inter-task-wakeup` feature
-//! signals through a guest-internal unit stream, which wasmtime delivers
-//! and jco does not, and racing a clock future against a waker would
-//! cancel an in-flight import subtask, which jco traps on (#6). Bounded
-//! polling costs at most one quantum per wake edge and behaves
-//! identically on every host. All of it runs on the component-model async
-//! ABI's single cooperative thread: the `RefCell` borrows never cross an
-//! await.
+//! Wake-ups are event-driven in both directions. Resource methods
+//! mutate the shared state directly, kick the pump to flush the
+//! consequences (`State::kick_pump`), and park on a waker in
+//! `State::waiters`; the pump wakes the waiters after every drain that
+//! progressed (`State::wake_waiters`). Cross-task wakeups ride
+//! wit-bindgen's `inter-task-wakeup` channel — a guest-internal unit
+//! stream whose write resumes a task parked in `waitable-set.wait` —
+//! which both hosts deliver. (The jco-era bounded-polling pump this
+//! replaces is recorded on issues #10 and #42.)
+//!
+//! The pump's clock tick stays: noq's timers need servicing, and the
+//! tick turn wakes all waiters unconditionally, which bounds two things
+//! at one tick — how late a waiter's deadline condition (relay-open
+//! timeout, signaling deadline) is observed, and how stale a missed
+//! wake edge can go.
+//!
+//! An in-flight import is a component-model subtask and is always
+//! awaited to completion, never dropped mid-flight (the teardown
+//! discipline; the kick future is guest-local, so re-creating it each
+//! select turn cancels nothing). All of it runs on the component-model
+//! async ABI's single cooperative thread: the `RefCell` borrows never
+//! cross an await, and a fired waker resumes its task through the
+//! scheduler, never synchronously.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -19,6 +31,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::task::{Poll, Waker};
 
 use std::time::{Duration, Instant};
 
@@ -52,12 +65,9 @@ use crate::Component;
 use iroh_endpoint_core::relay::RelayConn;
 use wit_bindgen::rt::async_support::StreamReader;
 
-/// The pump's tick: noq's deadlines, and the bound on how stale a
-/// resource-method mutation can go unflushed.
+/// The pump's tick: noq's deadlines, the waiters' deadline re-check
+/// cadence, and the bound on how stale a missed wake edge can go.
 const TICK_NS: u64 = 10_000_000;
-
-/// Resource methods' polling quantum while waiting on pump consequences.
-pub(crate) const POLL_NS: u64 = 5_000_000;
 
 /// Bounded window for final packets after `endpoint.close`.
 const LINGER: Duration = Duration::from_millis(500);
@@ -128,6 +138,13 @@ pub(crate) struct State {
     /// Set when the relay connection died; every operation fails from
     /// then on.
     dead: Option<String>,
+    /// Wakers parked by `wait_until` futures, drained and fired by
+    /// `wake_waiters`.
+    waiters: Vec<Waker>,
+    /// The pump's parked waker and the pending-kick flag behind
+    /// `kick_pump` (consumed by the pump's `kicked` select arm).
+    pump_waker: Option<Waker>,
+    pump_kicked: bool,
 }
 
 /// The wire behind one synthetic peer address.
@@ -217,6 +234,9 @@ impl State {
             closed: false,
             closed_at: None,
             dead: None,
+            waiters: Vec::new(),
+            pump_waker: None,
+            pump_kicked: false,
         }
     }
 
@@ -240,14 +260,35 @@ impl State {
     }
 
     /// Add a relay connection to the pool under its normalized URL.
-    /// The first registration is the home relay (`HOME_RELAY`).
+    /// The first registration is the home relay (`HOME_RELAY`). Kicks
+    /// the pump to arm the relay's receive.
     fn register_relay(&mut self, url: &str, conn: Rc<RelayConn>) -> u32 {
         let key = self.next_relay_key;
         self.next_relay_key += 1;
         self.relay_pool.insert(key, conn.clone());
         self.relay_keys.insert(normalize_relay_url(url), key);
         self.new_relays.push((key, conn));
+        self.kick_pump();
         key
+    }
+
+    /// Wake every parked `wait_until` future to re-check its condition.
+    /// A woken task resumes through the scheduler, never synchronously,
+    /// so calling this under the `RefCell` borrow is sound.
+    pub(crate) fn wake_waiters(&mut self) {
+        for waker in self.waiters.drain(..) {
+            waker.wake();
+        }
+    }
+
+    /// Wake the pump to flush the consequences of a state mutation:
+    /// queued transmits and signals, new relays and channels, pending
+    /// upgrades, close.
+    pub(crate) fn kick_pump(&mut self) {
+        self.pump_kicked = true;
+        if let Some(waker) = self.pump_waker.take() {
+            waker.wake();
+        }
     }
 
     /// True once no operation can succeed anymore; signaling sessions
@@ -280,9 +321,10 @@ impl State {
     }
 
     /// Queue one signaling payload for the pump to relay to `peer`
-    /// through the session's relay.
+    /// through the session's relay, kicking the pump to flush it.
     pub(crate) fn push_signal_outbound(&mut self, relay: u32, peer: [u8; 32], payload: Vec<u8>) {
         self.relay_outbound.push_back((relay, peer, payload));
+        self.kick_pump();
     }
 
     /// The next signaling payload from `peer`, if any.
@@ -292,8 +334,8 @@ impl State {
 
     /// Register an open channel to `peer` and move the peer's route
     /// onto it: noq keeps addressing the peer's standin while the
-    /// packets change wire. The pump arms the channel's receive on its
-    /// next turn. A closing endpoint refuses and closes the wire.
+    /// packets change wire. Kicks the pump to arm the channel's
+    /// receive. A closing endpoint refuses and closes the wire.
     pub(crate) fn register_channel(
         &mut self,
         peer: [u8; 32],
@@ -317,6 +359,7 @@ impl State {
         self.new_channels.push((id, wire));
         let synthetic = self.addr_for_peer(peer, fallback_relay);
         self.routes.insert(synthetic, RouteWire::Channel(id));
+        self.kick_pump();
         Ok(())
     }
 
@@ -345,8 +388,11 @@ impl State {
     }
 
     /// Drain endpoint-bound events, application events, and transmits
-    /// until quiescent; polling method futures observe the consequences.
-    fn drain(&mut self) {
+    /// until quiescent; returns whether anything progressed, so the
+    /// pump wakes parked method futures exactly when the state they
+    /// observe may have changed.
+    fn drain(&mut self) -> bool {
+        let mut any_progress = false;
         let now = Instant::now();
         let State {
             noq,
@@ -408,11 +454,14 @@ impl State {
                 if !progressed {
                     break;
                 }
+                any_progress = true;
             }
             if !entry.drained && entry.conn.is_drained() {
                 entry.drained = true;
+                any_progress = true;
             }
         }
+        any_progress
     }
 
     fn handle_relay_datagram(&mut self, via: u32, source: [u8; 32], payload: Vec<u8>) {
@@ -608,9 +657,18 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
     let mut tick = pin!(monotonic_clock::wait_for(TICK_NS).fuse());
     let mut channel_recvs: FuturesUnordered<ChannelRecvFuture> = FuturesUnordered::new();
     let mut relay_recvs: FuturesUnordered<RelayRecvFuture> = FuturesUnordered::new();
+    // Set by the tick arm: wake the waiters even without drain progress,
+    // so deadline conditions are re-checked at tick granularity.
+    let mut force_wake = false;
 
     'pump: loop {
-        shared.borrow_mut().drain();
+        {
+            let mut st = shared.borrow_mut();
+            if st.drain() || force_wake {
+                st.wake_waiters();
+            }
+        }
+        force_wake = false;
         loop {
             let item = shared.borrow_mut().relay_outbound.pop_front();
             match item {
@@ -763,12 +821,21 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
                     }
                 }
             },
+            _ = kicked(&shared).fuse() => {
+                // A method mutated state needing a flush; the loop top
+                // drains and transmits it.
+            },
             _ = tick => {
                 tick.set(monotonic_clock::wait_for(TICK_NS).fuse());
                 shared.borrow_mut().handle_timeouts();
+                force_wake = true;
             }
         }
     }
+
+    // No waiter sleeps past the pump: every break path set its terminal
+    // state (dead, or closed and drained/lingered) before arriving here.
+    shared.borrow_mut().wake_waiters();
 
     // Resolve the pinned imports before the task ends: close every pool
     // relay and every channel (each pending receive resolves with its
@@ -886,6 +953,9 @@ fn handle_signal(shared: &Shared, via: u32, source: [u8; 32], payload: &[u8]) {
         if inbox.len() < INBOX_CAP {
             inbox.push_back(payload.to_vec());
         }
+        // Inbox pushes bypass `drain`, so the loop-top wake never sees
+        // them; wake the session waiters here.
+        st.wake_waiters();
         spawn_answerer
     };
     if spawn_answerer {
@@ -933,16 +1003,42 @@ fn normalize_relay_url(url: &str) -> String {
     url.trim_end_matches('/').to_string()
 }
 
-/// Poll `check` against the shared state until it produces a value,
-/// sleeping one quantum between attempts. Each sleep is a clock import
-/// awaited to completion — never cancelled mid-flight.
-async fn wait_until<R>(shared: &Shared, mut check: impl FnMut(&mut State) -> Option<R>) -> R {
-    loop {
-        if let Some(result) = check(&mut shared.borrow_mut()) {
-            return result;
+/// Run `check` against the shared state until it produces a value,
+/// parking a waker in `State::waiters` between attempts. The pump fires
+/// the waiters when the state may have changed, and on every tick — a
+/// deadline inside `check` is observed at tick granularity.
+pub(crate) async fn wait_until<R>(
+    shared: &Shared,
+    mut check: impl FnMut(&mut State) -> Option<R>,
+) -> R {
+    std::future::poll_fn(|cx| {
+        let mut st = shared.borrow_mut();
+        match check(&mut st) {
+            Some(result) => Poll::Ready(result),
+            None => {
+                st.waiters.push(cx.waker().clone());
+                Poll::Pending
+            }
         }
-        monotonic_clock::wait_for(POLL_NS).await;
-    }
+    })
+    .await
+}
+
+/// The pump's kick arm: resolves once a resource method kicks the pump,
+/// parking the pump's waker meanwhile. Guest-local — re-creating it
+/// each select turn cancels no import subtask.
+async fn kicked(shared: &Shared) {
+    std::future::poll_fn(|cx| {
+        let mut st = shared.borrow_mut();
+        if st.pump_kicked {
+            st.pump_kicked = false;
+            Poll::Ready(())
+        } else {
+            st.pump_waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    })
+    .await
 }
 
 // --- exported resources --------------------------------------------------
@@ -960,6 +1056,8 @@ impl Drop for EndpointRes {
             st.closed = true;
             st.closed_at = Some(Instant::now());
             st.close_all(b"endpoint dropped");
+            st.kick_pump();
+            st.wake_waiters();
         }
     }
 }
@@ -1010,6 +1108,8 @@ impl EndpointRes {
             let opened = RelayConn::connect(url, &self.identity).await;
             let mut st = self.shared.borrow_mut();
             st.relay_opening.remove(&normalized);
+            // Concurrent dialers of this relay wait on the outcome.
+            st.wake_waiters();
             return match opened {
                 Ok(conn) => Ok(st.register_relay(url, Rc::new(conn))),
                 Err(e) => Err(Error::ConnectFailed(format!("relay {url}: {e}"))),
@@ -1242,6 +1342,8 @@ impl GuestEndpoint for EndpointRes {
             if let Some(key) = upgrade_key {
                 st.pending_upgrades.push((peer, key));
             }
+            // Flush the first flight (and spawn the upgrade) now.
+            st.kick_pump();
             handle
         };
 
@@ -1286,6 +1388,10 @@ impl GuestEndpoint for EndpointRes {
             st.closed = true;
             st.closed_at = Some(Instant::now());
             st.close_all(b"endpoint closed");
+            // Flush the CLOSEs and start the linger; wake the accept
+            // and connect waiters watching `closed`.
+            st.kick_pump();
+            st.wake_waiters();
         }
     }
 }
@@ -1299,12 +1405,24 @@ impl ConnectionRes {
 
     async fn open_stream(&self, dir: Dir) -> Result<StreamId, Error> {
         let handle = self.handle;
-        wait_until(&self.shared, |st| {
+        let mut kicked_blocked = false;
+        wait_until(&self.shared, move |st| {
             let entry = st.conns.get_mut(&handle).expect("connection entry");
             if let Some(err) = &entry.error {
                 return Some(Err(err.clone()));
             }
-            entry.conn.streams().open(dir).map(Ok)
+            match entry.conn.streams().open(dir) {
+                Some(id) => Some(Ok(id)),
+                None => {
+                    // Blocked on stream credit: flush the
+                    // STREAMS_BLOCKED once so the peer knows.
+                    if !kicked_blocked {
+                        kicked_blocked = true;
+                        st.kick_pump();
+                    }
+                    None
+                }
+            }
         })
         .await
     }
@@ -1416,7 +1534,7 @@ impl GuestConnection for ConnectionRes {
     }
 
     fn send_datagram(&self, data: Vec<u8>) -> Result<(), Error> {
-        self.with_entry(|e| {
+        let result = self.with_entry(|e| {
             if let Some(err) = &e.error {
                 return Err(err.clone());
             }
@@ -1435,9 +1553,12 @@ impl GuestConnection for ConnectionRes {
                     }
                     other => Error::Other(format!("send-datagram: {other}")),
                 })
-        })
-        // The pump's next tick flushes the queued datagram, the same
-        // bound stream writes live under.
+        });
+        if result.is_ok() {
+            // Flush the queued datagram.
+            self.shared.borrow_mut().kick_pump();
+        }
+        result
     }
 
     async fn recv_datagram(&self) -> Result<Vec<u8>, Error> {
@@ -1461,6 +1582,8 @@ impl GuestConnection for ConnectionRes {
                 VarInt::from_u32(code),
                 bytes::Bytes::from(reason.into_bytes()),
             );
+            // Flush the CONNECTION_CLOSE.
+            st.kick_pump();
         }
     }
 
@@ -1474,7 +1597,7 @@ impl GuestConnection for ConnectionRes {
     }
 }
 
-/// Write all of `bytes`, polling through flow control as needed.
+/// Write all of `bytes`, parking through flow control as needed.
 async fn write_all(
     shared: &Shared,
     handle: ConnectionHandle,
@@ -1487,24 +1610,30 @@ async fn write_all(
         if let Some(err) = &entry.error {
             return Some(Err(err.clone()));
         }
-        loop {
+        let pass_start = offset;
+        let outcome = loop {
             match entry.conn.send_stream(id).write(&bytes[offset..]) {
                 Ok(written) => {
                     offset += written;
                     if offset == bytes.len() {
-                        return Some(Ok(()));
+                        break Some(Ok(()));
                     }
                     if written == 0 {
-                        return None;
+                        break None;
                     }
                 }
-                Err(WriteError::Blocked) => return None,
+                Err(WriteError::Blocked) => break None,
                 Err(WriteError::Stopped(code)) => {
-                    return Some(Err(Error::Reset(code.to_string())));
+                    break Some(Err(Error::Reset(code.to_string())));
                 }
-                Err(WriteError::ClosedStream) => return Some(Err(Error::Closed)),
+                Err(WriteError::ClosedStream) => break Some(Err(Error::Closed)),
             }
+        };
+        if offset > pass_start {
+            // Flush what this pass buffered, complete or not.
+            st.kick_pump();
         }
+        outcome
     })
     .await
 }
@@ -1537,8 +1666,18 @@ async fn read_some(
         let result = chunks.next(max as usize);
         let _ = chunks.finalize();
         match result {
-            Ok(Some(chunk)) => Some(Ok(Some(chunk.bytes.to_vec()))),
-            Ok(None) => Some(Ok(None)),
+            Ok(Some(chunk)) => {
+                // Consuming frees receive window; flush the credit
+                // update so the sender is not left blocked.
+                st.kick_pump();
+                Some(Ok(Some(chunk.bytes.to_vec())))
+            }
+            Ok(None) => {
+                // The consumed FIN retires the stream; flush the
+                // credit it releases.
+                st.kick_pump();
+                Some(Ok(None))
+            }
             Err(ReadError::Blocked) => None,
             Err(ReadError::Reset(code)) => Some(Err(Error::Reset(code.to_string()))),
         }
@@ -1558,7 +1697,11 @@ impl GuestSendStream for SendStreamRes {
             return Err(err.clone());
         }
         match entry.conn.send_stream(self.id).finish() {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                // Flush the FIN.
+                st.kick_pump();
+                Ok(())
+            }
             Err(FinishError::Stopped(code)) => Err(Error::Reset(code.to_string())),
             Err(FinishError::ClosedStream) => Err(Error::Closed),
         }
@@ -1571,6 +1714,8 @@ impl GuestSendStream for SendStreamRes {
             .conn
             .send_stream(self.id)
             .reset(VarInt::from_u32(code));
+        // Flush the RESET_STREAM.
+        st.kick_pump();
     }
 
     async fn write_via_stream(&self, mut data: StreamReader<u8>) -> Result<(), Error> {
@@ -1603,6 +1748,8 @@ impl GuestRecvStream for RecvStreamRes {
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
         let _ = entry.conn.recv_stream(self.id).stop(VarInt::from_u32(code));
+        // Flush the STOP_SENDING.
+        st.kick_pump();
     }
 
     fn read_via_stream(&self) -> Result<StreamReader<u8>, Error> {
