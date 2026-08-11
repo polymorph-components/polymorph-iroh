@@ -81,6 +81,11 @@ exam-deltic: build-components relay-build deltic-setup
         echo "deltic pin drift across deno.jsons: $v" >&2
         exit 1
     fi
+    # ...and the RESOLVED graph must agree: one embedder instance, no raw
+    # URLs (a sibling .deps module's own config can silently split module
+    # identity in a way no config grep catches; see the gate script).
+    deno info --json --config host-deltic/deno.json host-deltic/src/run-endpoint.ts \
+        | deno run scripts/deltic-identity-gate.ts
     timeout 600 deno run -A --config host-deltic/deno.json --frozen \
         host-deltic/src/run-endpoint.ts
 
