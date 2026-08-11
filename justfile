@@ -1,10 +1,15 @@
 # The single entry point for building and checking this repository; run
-# `just` to list recipes. CI (once it exists) runs the same recipes.
+# `just` to list recipes. CI job bodies live in the gha module
+# (`.github/justfile`), so `just ci` is exactly CI.
 
-_default:
+# GitHub Actions plumbing: CI job entry points.
+mod gha '.github'
+
+# List the available recipes.
+default:
     @just --list
 
-# One-shot dependency setup (sibling + iroh checkouts, npm installs).
+# One-shot dependency setup (sibling + iroh checkouts).
 setup:
     ./scripts/setup.sh
 
@@ -21,11 +26,6 @@ build-hosts:
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
     cd .deps/iroh && cargo build --release -p iroh-relay --features server --bin iroh-relay
-
-# Transpile the guest components for the Node host.
-transpile: build-components
-    cd host-jco && npm run transpile
-    cd host-jco && npm run transpile-endpoint
 
 build: build-components build-hosts
 
@@ -48,19 +48,37 @@ validate-wit:
     wasm-tools component wit endpoint-demo/wit/ > /dev/null
     wasm-tools component wit experiments/exec-model/wit/ > /dev/null
 
-# The execution-model probes on both hosts.
+# The execution-model probes on the Wasmtime host.
 probes: build build-components
     cargo build -p iroh-exec-model-guest --target wasm32-wasip2 --release
     target/release/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
-    cd host-jco && npm run transpile-exec && timeout 120 node --experimental-wasm-jspi src/run-exec.mjs
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.
-matrix: build transpile relay-build
+matrix: build relay-build
     ./scripts/matrix.sh
 
-# The measured-claims gate: per-wire latency/throughput medians and the
-# webcrypto boundary call counts, asserted against budgets (issue #4).
-bench: build transpile relay-build
+# The deltic host's module graph + the node-datachannel addon (whose
+# install script needs an explicit grant). Idempotent.
+deltic-setup:
+    cd host-deltic && deno install --frozen --allow-scripts=npm:node-datachannel
+
+# The endpoint exam on the deltic host: the endpoint component
+# runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
+# upgrade, the issue #10 concurrency rows, teardown. See
+# host-deltic/README.md.
+exam-deltic: build-components relay-build deltic-setup
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shim=$(deno run --config host-deltic/deno.json --frozen \
+        --allow-read=. --allow-write=target/deltic \
+        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
+        host-deltic/fetch-translator.ts)
+    DELTIC_TRANSLATOR="$shim" timeout 600 deno run -A --config host-deltic/deno.json --frozen \
+        host-deltic/src/run-endpoint.ts
+
+# The measured-claims gate: per-wire latency/throughput medians,
+# asserted against budgets (issue #4).
+bench: build relay-build
     ./scripts/bench.sh
 
 # The endpoint against n0's production relays over wss (issue #2).
@@ -68,17 +86,22 @@ bench: build transpile relay-build
 interop-prod: build
     ./scripts/interop-prod.sh
 
-# The synthetic-UDP wake probes (issue #14): a tokio reactor inside a
-# jco/JSPI wasip2 component, woken from JS through a synthetic
-# wasi:sockets shim — once host-side, once through a wac-composed
-# guest-side virtualization component over a generic event source.
-# Research probes attached to the issue, so manual: not part of `ci`.
-# Needs the jco fork from setup.sh.
-udp-wake:
-    cd experiments/udp-wake/guest && cargo build --release
-    cd experiments/udp-wake/virt && cargo build --release
-    cd experiments/udp-wake && wac plug guest/target/wasm32-wasip2/release/iroh-udp-wake-guest.wasm --plug virt/target/wasm32-wasip2/release/iroh_udp_wake_virt.wasm -o composed.wasm
-    cd experiments/udp-wake/host && npm install --no-audit --no-fund && npm run transpile && timeout 120 npm start && timeout 120 npm run start-composed
+# The upstream-iroh-over-relay spike (issue #14): the unmodified iroh
+# crate (upstream main + the wasi-enablement patch branches, from the
+# lann/iroh and lann/net-tools polymorph-iroh branches) as a wasip2
+# component, runtime-linked under deltic on stock Deno — relay-only
+# bootstrap over the polymorph-websocket sibling's deltic module, then
+# live migration onto a WebRTC data channel through the synthetic-address
+# overlay (issue #26). Research probe attached to the issue, so manual:
+# not part of `ci`. Needs the sibling checkouts from setup.sh.
+iroh-relay-ws: relay-build
+    cd experiments/iroh-relay-ws/guest && cargo build --release
+    cd experiments/iroh-relay-ws/host && deno install --frozen --allow-scripts=npm:node-datachannel
+    ./experiments/iroh-relay-ws/run.sh
 
-# The full gate.
-ci: fmt-check clippy validate-wit test probes matrix bench
+# The fast pre-commit checks.
+check: fmt-check clippy validate-wit test
+
+# The exact set of checks CI runs: the CI job runs exactly one gha:: job
+# recipe.
+ci: (gha::checks)

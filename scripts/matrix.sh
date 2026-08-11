@@ -100,12 +100,8 @@ run_pair() {
     fi
 }
 
-jco() {
-    # Subshell cd: npm-resolved modules live in host-jco.
-    (cd host-jco && exec timeout 120 node --experimental-wasm-jspi "$@")
-}
 
-# --- spike demo: both wires, all four host pairings -----------------------
+# --- spike demo: both wires, wasmtime pairing ------------------------------
 
 for wire in webrtc relay; do
     run_pair "spike-$wire-wasmtime-wasmtime" \
@@ -114,32 +110,16 @@ for wire in webrtc relay; do
         env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
             --role client --server "$RELAY_URL" --transport "$wire" \
             --message "matrix $wire" --peer
-    run_pair "spike-$wire-jco-jco" \
-        jco src/run.mjs --role server --server "$RELAY_URL" --transport "$wire" -- \
-        jco src/run.mjs --role client --server "$RELAY_URL" --transport "$wire" \
-            --message "matrix $wire" --peer
-    run_pair "spike-$wire-wasmtime-server-jco-client" \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
-            --role server --server "$RELAY_URL" --transport "$wire" -- \
-        jco src/run.mjs --role client --server "$RELAY_URL" --transport "$wire" \
-            --message "matrix $wire" --peer
-    run_pair "spike-$wire-jco-server-wasmtime-client" \
-        jco src/run.mjs --role server --server "$RELAY_URL" --transport "$wire" -- \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
-            --role client --server "$RELAY_URL" --transport "$wire" \
-            --message "matrix $wire" --peer
 done
 
 # --- endpoint surface: the wac-composed demo under wasmtime ---------------
 #
-# The jco leg of the endpoint surface is blocked by upstream jco: its
-# per-component execution slot serializes whole task lifetimes, so the
+# The jco leg of the endpoint surface retired with the jco host: its
+# per-component execution slot serialized whole task lifetimes, so the
 # detached pump task (alive with in-flight imports across export calls)
-# deadlocks every later export call; relaxing that gate exposes deeper
-# task-interleave races (lann/jco#11, fix attempts in lann/jco PR #27).
-# Two JS drivers are ready for when it works: run-endpoint.mjs (the
-# surface driven directly) and run-endpoint-demo.mjs (the composed
-# artifact the wasmtime rows run).
+# deadlocked every later export call (lann/jco#11, fix attempts in
+# lann/jco PR #27). host-deltic runs this surface under stock Deno
+# instead (see host-deltic/README.md); `just exam-deltic` is its gate.
 
 run_pair "endpoint-relay-wasmtime-wasmtime" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \

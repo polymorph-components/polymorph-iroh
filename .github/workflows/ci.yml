@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # The full gate: checks, probes, and the cross-host pairing matrix — the
-  # same `just ci` a developer runs.
+  # same `just ci` a developer runs, which runs the gha::checks recipe.
   ci:
     runs-on: ubuntu-latest
     # QUIC/WebRTC handshakes can hang; cap the job so a stuck run fails
@@ -26,20 +26,10 @@ jobs:
         # rust-toolchain.toml; `rustup show` installs exactly those.
         run: rustup show active-toolchain || rustup toolchain install
 
-      - name: Install Node
-        uses: actions/setup-node@v4
+      - name: Install Deno (the deltic host; stock, no flags)
+        uses: denoland/setup-deno@v2
         with:
-          node-version: 24
-
-      - name: Cache the jco toolchain
-        # Before setup.sh: on a hit, the pinned fork arrives already
-        # built (setup.sh's stamp check skips the whole Rust+pnpm build).
-        # setup.sh deletes the cargo intermediates, so the entry is just
-        # the checkout, its node_modules, and the built packages.
-        uses: actions/cache@v4
-        with:
-          path: .deps/jco
-          key: jco-toolchain-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
+          deno-version: "2.9.5"
 
       - name: Install dependencies
         # Before the cargo cache step: the cache keys on the workspaces'
@@ -55,6 +45,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          # setup.sh has already installed the pinned tools into
+          # ~/.cargo/bin when this restore runs; a cached bin/ would roll
+          # them back to whatever versions main's cache holds. Excluding
+          # bin/ also changes the cache path set, so entries saved with
+          # bin/ included no longer match.
+          cache-bin: false
           # The upstream iroh-relay builds into its own checkout's target.
           workspaces: |
             . -> target
@@ -64,4 +60,4 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run the gate
-        run: just ci
+        run: just gha::checks

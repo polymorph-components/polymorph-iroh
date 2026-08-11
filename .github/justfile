@@ -1,0 +1,36 @@
+# CI job bodies: each workflow job runs exactly one `gha::` recipe, so
+# `just ci` is exactly CI and the workflow files carry no logic beyond
+# environment setup.
+
+set working-directory := '..'
+
+# Wrap one recipe in a GitHub Actions log group (plain passthrough
+# locally).
+[private]
+_step recipe:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        echo "::group::just {{recipe}}"
+        status=0
+        just {{recipe}} || status=$?
+        echo "::endgroup::"
+        if [ $status -ne 0 ]; then
+            echo "::error title=just {{recipe}} failed::exit status $status"
+            exit $status
+        fi
+    else
+        just {{recipe}}
+    fi
+
+# The full gate: checks, probes, the cross-host pairing matrix, the
+# deltic endpoint exam, and the measured-claims bench.
+checks:
+    @just gha::_step fmt-check
+    @just gha::_step clippy
+    @just gha::_step validate-wit
+    @just gha::_step test
+    @just gha::_step probes
+    @just gha::_step matrix
+    @just gha::_step exam-deltic
+    @just gha::_step bench

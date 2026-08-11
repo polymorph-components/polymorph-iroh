@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Browser harness for the iroh-blobs spike: the same sockets shim,
+     bridges, and deltic runtime as the Deno driver, runtime-linked in the
+     browser (JSPI). Serve from the repository root so the guest and
+     translator fetches resolve; driven by browser-test.mjs, which bundles
+     dist/browser-entry.js first. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>iroh-blobs spike (browser)</title>
+  </head>
+  <body>
+    <pre id="log">running…</pre>
+    <script type="module" src="./dist/browser-entry.js"></script>
+  </body>
+</html>

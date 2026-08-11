@@ -1,5 +1,0 @@
-# tokio requires this cfg to enable `net` on wasm targets; scoped to this
-# standalone workspace so the root workspace's fingerprints are untouched.
-[build]
-rustflags = ["--cfg", "tokio_unstable"]
-target = "wasm32-wasip2"

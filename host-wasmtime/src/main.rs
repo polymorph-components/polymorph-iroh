@@ -27,9 +27,7 @@ use polymorph_webcrypto_wasmtime::{WasiWebcryptoCtx, WasiWebcryptoCtxView, WasiW
 use wasmtime::component::{Accessor, Component, HasData, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Result, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-use wasmtime_webrtc_datachannels::{
-    self as webrtc_host, WasiWebrtcCtx, WasiWebrtcCtxView, WasiWebrtcView,
-};
+use wasmtime_webrtc_datachannels::{self as webrtc_host, WebrtcCtx, WebrtcCtxView, WebrtcView};
 use wasmtime_websocket::{WasiWebsocketCtx, WasiWebsocketCtxView, WasiWebsocketView};
 
 mod bindings {
@@ -51,7 +49,7 @@ use bindings::exports::polymorph::iroh_spike::demo::{
 
 struct Ctx {
     wasi: WasiCtx,
-    webrtc: WasiWebrtcCtx,
+    webrtc: WebrtcCtx,
     webcrypto: WasiWebcryptoCtx,
     websocket: WasiWebsocketCtx,
     table: ResourceTable,
@@ -70,9 +68,9 @@ impl WasiView for Ctx {
     }
 }
 
-impl WasiWebrtcView for Ctx {
-    fn webrtc(&mut self) -> WasiWebrtcCtxView<'_> {
-        WasiWebrtcCtxView {
+impl WebrtcView for Ctx {
+    fn webrtc(&mut self) -> WebrtcCtxView<'_> {
+        WebrtcCtxView {
             ctx: &mut self.webrtc,
             table: &mut self.table,
         }
@@ -108,8 +106,8 @@ fn engine() -> Result<Engine> {
 
 /// The WebRTC context, honoring the demo hosts' `WEBRTC_INCLUDE_LOOPBACK`
 /// convention (same-host peers need loopback ICE candidates to pair).
-fn webrtc_ctx() -> WasiWebrtcCtx {
-    let mut ctx = WasiWebrtcCtx::new();
+fn webrtc_ctx() -> WebrtcCtx {
+    let mut ctx = WebrtcCtx::new();
     if std::env::var_os("WEBRTC_INCLUDE_LOOPBACK").is_some() {
         ctx.set_setting_engine_hook(|engine| {
             engine.set_include_loopback_candidate(true);
