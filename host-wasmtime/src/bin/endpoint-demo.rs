@@ -92,6 +92,7 @@ struct Cli {
     datagram_ceiling: Option<u32>,
     inject_identity: bool,
     identity_negative: bool,
+    stream_negative: bool,
     message: String,
 }
 
@@ -102,7 +103,7 @@ fn usage() -> wasmtime::Error {
          [--udp-bind <ip:port>] [--direct <ip:port>] [--webrtc] \
          [--peer-relay <relay-url>] [--payload-bytes N] [--datagram] \
          [--datagram-ceiling BYTES] [--inject-identity] \
-         [--identity-negative] [--message M]",
+         [--identity-negative] [--stream-negative] [--message M]",
     )
 }
 
@@ -122,6 +123,7 @@ fn parse_args() -> Result<Cli> {
     let mut datagram_ceiling = None;
     let mut inject_identity = false;
     let mut identity_negative = false;
+    let mut stream_negative = false;
     let mut message = "hello through the endpoint surface".to_string();
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or_else(usage);
@@ -149,6 +151,7 @@ fn parse_args() -> Result<Cli> {
             }
             "--inject-identity" => inject_identity = true,
             "--identity-negative" => identity_negative = true,
+            "--stream-negative" => stream_negative = true,
             "--message" => message = value()?,
             _ => return Err(usage()),
         }
@@ -168,6 +171,7 @@ fn parse_args() -> Result<Cli> {
         datagram_ceiling,
         inject_identity,
         identity_negative,
+        stream_negative,
         message,
     })
 }
@@ -220,6 +224,7 @@ async fn main() -> Result<()> {
         datagram_ceiling: cli.datagram_ceiling,
         inject_identity: cli.inject_identity,
         identity_negative: cli.identity_negative,
+        stream_negative: cli.stream_negative,
         message: cli.message,
     };
     let report = store
