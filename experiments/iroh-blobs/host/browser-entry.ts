@@ -3,31 +3,34 @@
 // (browser-test.mjs) to await and assert on.
 //
 // Bundled by browser-test.mjs with `deno bundle --platform browser` into
-// dist/browser-entry.js; the page passes the translator-shim URL as the
-// `translator` query parameter and the guest component is fetched
-// relative to this experiment.
+// dist/browser-entry.js; the harness pre-translates the guest with
+// translate.ts (embedder-api A4), so the page fetches the component plus
+// its envelope and no translator ships to the browser.
 
 import { stats } from "./sockets.ts";
 import { bridgeStats } from "./bridge.ts";
 import { webrtcStats } from "./webrtc-bridge.ts";
-import { guestImports, runGuest } from "../../iroh-relay-ws/host/harness.ts";
+import { artifactsFrom, guestImports, runGuest } from "../../iroh-relay-ws/host/harness.ts";
 
 const logEl = document.getElementById("log")!;
 const t0 = performance.now();
 
 try {
-  const params = new URLSearchParams(location.search);
-  const translatorUrl = params.get("translator");
-  if (!translatorUrl) throw new Error("missing ?translator=<url> (see browser-test.mjs)");
   const fetchBytes = async (url: string): Promise<Uint8Array> => {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`GET ${url}: ${resp.status}`);
     return new Uint8Array(await resp.arrayBuffer());
   };
-  const [translator, componentBytes] = await Promise.all([
-    fetchBytes(translatorUrl),
+  const fetchText = async (url: string): Promise<string> => {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`GET ${url}: ${resp.status}`);
+    return resp.text();
+  };
+  const [componentBytes, envelope] = await Promise.all([
     fetchBytes("../guest/target/wasm32-wasip2/release/iroh-blobs-guest.wasm"),
+    fetchText("./dist/iroh-blobs-guest.plan.json"),
   ]);
+  const artifacts = artifactsFrom(envelope, componentBytes);
   console.log(`[driver] loaded in ${(performance.now() - t0).toFixed(1)}ms`);
 
   const env: Record<string, string> = {};
@@ -39,7 +42,7 @@ try {
   if (relay) env.RELAY = relay;
 
   await runGuest(
-    { componentBytes, translator },
+    artifacts,
     guestImports({ args: ["iroh-blobs-guest"], env }),
   );
   const summary =

@@ -17,24 +17,13 @@ GUEST_WASM=guest/target/wasm32-wasip2/release/ping-demo-guest.wasm
 rm -rf "$SITE"
 mkdir -p "$SITE"
 
-# The sha256-pinned translator shim, cached under target/deltic/ (the pin
-# and the cache live with host-deltic; the deltic tag in
-# ../iroh-relay-ws/host/deno.json matches it). build.sh's cwd is
-# experiments/ping-demo, two levels below repo root — see
-# ../iroh-relay-ws/run.sh for the sibling invocation this mirrors.
-shim=$(deno run --config ../../host-deltic/deno.json --frozen \
-    --allow-read=../.. --allow-write=../../target/deltic \
-    --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-    ../../host-deltic/fetch-translator.ts)
-
 # Build-time translation (deltic embedder-api A4): produces the
-# component-plus-plan envelope the page fetches at runtime. The shared
-# experiments config maps the CLI's @deltic/runtime/* imports at the
-# repo's pinned tag; the raw URL below must carry the same tag (the pin
-# gate in host-deltic/fetch-translator.ts checks it).
-deno run --config "$SPIKE_HOST/deno.json" --allow-read --allow-write \
-    "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/tools/translate/main.ts" \
-    "$GUEST_WASM" -o "$SITE/ping-demo.plan.json" --shim "$shim"
+# component-plus-plan envelope the page fetches at runtime. The
+# translator is @deltic/translator's packaged asset at the same pinned
+# release as the runtime the bundle carries, so the envelope's plan
+# format matches by construction.
+deno run --config "$SPIKE_HOST/deno.json" --frozen --allow-read --allow-write \
+    "$SPIKE_HOST/translate.ts" "$GUEST_WASM" "$SITE/ping-demo.plan.json"
 
 cp "$GUEST_WASM" "$SITE/ping-demo.component.wasm"
 

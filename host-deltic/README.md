@@ -53,29 +53,31 @@ guest's and is latent on every host.
 
 ## The pin
 
-deltic is pinned to ONE release tag repo-wide, cross-checked at run time
-by `fetch-translator.ts`:
+deltic arrives as exactly-pinned JSR prereleases:
+`jsr:@deltic/{runtime,wasi-shims,translator}@0.1.0-pre.g<shorthash>`,
+where the short hash names one upstream commit (the same hash as the
+corresponding GitHub `pre-<shorthash>` release). `@deltic/translator`
+ships the translator wasm for that same commit, so the plan-format
+coupling between runtime and translator is self-consistent inside each
+graph by construction — there is no separate asset pin and no fetch
+step.
 
-- `deno.json` — import-map URLs
-  (`raw.githubusercontent.com/lann/deltic/<tag>/…`) for
-  `@deltic/runtime/{embedder,shim}` and `@deltic/wasi-shims`;
-  `deno.lock` carries integrity hashes, enforced with `--frozen`. The
-  sibling host modules map to their `.deps` checkouts (pinned by
-  `scripts/setup.sh`), and the npm mappings (`node-datachannel`,
-  `werift`) serve the webrtc module's bare specifiers, which resolve
-  against this config as the entry import map.
-- `fetch-translator.ts` — `TAG` + `TRANSLATOR_SHA256` for the
-  `deltic-translator-shim.wasm` release asset (cached under
-  `target/deltic/<tag>/`).
-- `experiments/iroh-relay-ws/host/deno.json` — the upstream-iroh spikes'
-  shared config (one import map for all three experiments), plus the
-  translate-CLI URL in `experiments/ping-demo/build.sh`; both must carry
-  the same tag, and `fetch-translator.ts` refuses to run on drift.
+- `deno.json` — the versions in the import map; `deno.lock` carries
+  integrity, enforced with `--frozen`. The sibling host modules map to
+  their `.deps` checkouts (pinned by `scripts/setup.sh`), and the npm
+  mappings (`node-datachannel`, `werift`) serve the webrtc module's
+  bare specifiers, which resolve against this config as the entry
+  import map. `minimumDependencyAge` exempts `jsr:@deltic/*` from
+  Deno's default 24-hour supply-chain gate so same-day prereleases
+  resolve; everything else keeps the default.
+- `experiments/iroh-relay-ws/host/deno.json` — the upstream-iroh
+  spikes' shared config, same versions by repo convention; the
+  `exam-deltic` recipe asserts the two configs agree before running.
 
-To bump: update the tag in all of the above and the sha256 from the
-release's `SHA256SUMS`, delete both `deno.lock` files, re-run
-`just deltic-setup` and `deno install --allow-scripts=npm:node-datachannel`
-in `experiments/iroh-relay-ws/host/` to regenerate them, and commit the
+To bump: update the versions in both configs, delete both `deno.lock`
+files, re-run `just deltic-setup` and
+`deno install --allow-scripts=npm:node-datachannel` in
+`experiments/iroh-relay-ws/host/` to regenerate them, and commit the
 diff.
 
 ## Module identity

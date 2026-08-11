@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Runs the iroh-relay-ws spike end to end: a stock iroh-relay server (from
 # .deps/iroh, built by the just recipe), then the deltic host on stock
-# Deno driving the wasip2 guest — runtime-linked, no transpile step.
-# Reuses an already-running relay on 127.0.0.1:3340; kills only what it
-# started.
+# Deno driving the wasip2 guest — runtime-linked, no transpile step; the
+# translator ships inside the pinned @deltic/translator package. Reuses an
+# already-running relay on 127.0.0.1:3340; kills only what it started.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,13 +20,4 @@ if ! curl -s -m 2 http://127.0.0.1:3340 >/dev/null 2>&1; then
     done
 fi
 
-# The sha256-pinned translator shim, cached under target/deltic/ (the pin
-# and the cache live with host-deltic; the deltic tag in host/deno.json
-# matches it).
-shim=$(deno run --config ../../host-deltic/deno.json --frozen \
-    --allow-read=../.. --allow-write=../../target/deltic \
-    --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-    ../../host-deltic/fetch-translator.ts)
-
-DELTIC_TRANSLATOR="$shim" timeout 120 \
-    deno run -A --config host/deno.json --frozen host/run.ts
+timeout 120 deno run -A --config host/deno.json --frozen host/run.ts

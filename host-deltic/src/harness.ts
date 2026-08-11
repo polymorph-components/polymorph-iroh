@@ -12,7 +12,7 @@
 // graph, so there is exactly one `WitError`/`Stream` module instance and
 // `instanceof` holds across every boundary.
 
-import { Translator } from "@deltic/runtime/shim";
+import { defaultTranslator } from "@deltic/translator";
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";
 import { instantiate, WitError } from "@deltic/runtime/embedder";
 import { wasiShims } from "@deltic/wasi-shims";
@@ -62,20 +62,13 @@ async function exists(path: string): Promise<boolean> {
  * across every `instantiate` in the run: two endpoint *instances* are two
  * separate component instances over the same immutable artifacts.
  *
- * The translator shim arrives through `DELTIC_TRANSLATOR`; the
- * `exam-deltic` justfile recipe fetches the sha256-pinned release asset
- * with `fetch-translator.ts` and exports the path.
+ * The translator is `@deltic/translator`'s packaged asset — the same
+ * pinned release as the runtime, loaded through the module graph
+ * (permission-free on Deno), so there is no fetch step and no
+ * plan-format skew to guard against.
  */
 export async function loadArtifacts(): Promise<ComponentArtifacts> {
   if (cachedArtifacts) return cachedArtifacts;
-  const shim = Deno.env.get("DELTIC_TRANSLATOR");
-  if (!shim) {
-    throw new Error(
-      "DELTIC_TRANSLATOR is unset — fetch the pinned translator shim with " +
-        "host-deltic/fetch-translator.ts and export its path (the " +
-        "`just exam-deltic` recipe does both).",
-    );
-  }
   if (!await exists(ENDPOINT_WASM)) {
     throw new Error(
       `endpoint component not found at ${ENDPOINT_WASM} — build it with ` +
@@ -83,7 +76,7 @@ export async function loadArtifacts(): Promise<ComponentArtifacts> {
     );
   }
   const bytes = await Deno.readFile(ENDPOINT_WASM);
-  const translator = await Translator.create(await Deno.readFile(shim));
+  const translator = await defaultTranslator();
   const { plan, adapters } = translator.translate(bytes);
   cachedArtifacts = { plan, componentBytes: bytes, adapters };
   return cachedArtifacts;
