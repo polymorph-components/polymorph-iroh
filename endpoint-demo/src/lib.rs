@@ -40,7 +40,7 @@ const ALPN: &[u8] = b"iroh-demo/0";
 /// so the demo gates the close-info plumbing end to end; the values are
 /// mirrored in `tools/iroh-peer` (the upstream interop peer plays both
 /// sides of the same assertion).
-const CLOSE_CODE: u32 = 17;
+const CLOSE_CODE: u64 = 17;
 const CLOSE_REASON: &str = "demo done";
 
 /// Cap on one read call; the demo's payloads are tiny.
@@ -333,8 +333,7 @@ async fn run_server(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     // natural end on this side, and `wait-closed` must surface its
     // exact code and reason.
     match conn.wait_closed().await {
-        Some(CloseInfo { code, reason })
-            if code == u64::from(CLOSE_CODE) && reason == CLOSE_REASON => {}
+        Some(CloseInfo { code, reason }) if code == CLOSE_CODE && reason == CLOSE_REASON => {}
         other => {
             return Err(format!(
                 "expected the client's close ({CLOSE_CODE}, {CLOSE_REASON:?}), got: {other:?}"
@@ -454,11 +453,12 @@ fn datagram_summary(payload: &[u8]) -> String {
 }
 
 /// The stream-integrity probes' fixed codes (issue #13, findings
-/// A1/A2). The client asserts each read path's terminal outcome
-/// carries exactly these; the server sends them.
-const STREAM_RESET_CODE: u32 = 77;
-const STREAM_VIA_RESET_CODE: u32 = 78;
-const STREAM_CLOSE_CODE: u32 = 9;
+/// A1/A2). Deliberately above the u32 range: a passing run asserts
+/// application codes cross the surface u62-faithfully (finding A3),
+/// not truncated.
+const STREAM_RESET_CODE: u64 = (1 << 40) + 77;
+const STREAM_VIA_RESET_CODE: u64 = (1 << 41) + 78;
+const STREAM_CLOSE_CODE: u64 = (1 << 42) + 9;
 const STREAM_CLOSE_REASON: &str = "cut";
 
 /// Drain `recv` with `read` until its terminal outcome: `Ok` at the
@@ -521,7 +521,7 @@ async fn stream_negative_client(
         .map_err(fail("write s1"))?;
     send.finish().map_err(fail("finish s1"))?;
     match read_until_terminal(&recv).await {
-        Err(Error::Reset(code)) if code == STREAM_RESET_CODE.to_string() => {}
+        Err(Error::Reset(code)) if code == STREAM_RESET_CODE => {}
         other => {
             return Err(format!(
                 "s1: expected reset {STREAM_RESET_CODE}, got {other:?}"
@@ -529,7 +529,7 @@ async fn stream_negative_client(
         }
     }
     match recv.read(READ_MAX).await {
-        Err(Error::Reset(code)) if code == STREAM_RESET_CODE.to_string() => {}
+        Err(Error::Reset(code)) if code == STREAM_RESET_CODE => {}
         other => return Err(format!("s1: reset not latched; second read got {other:?}")),
     }
 
@@ -558,7 +558,7 @@ async fn stream_negative_client(
     let (data, done) = recv.read_via_stream().map_err(fail("read-via-stream s3"))?;
     let _partial = drain(data).await;
     match done.await {
-        Err(Error::Reset(code)) if code == STREAM_VIA_RESET_CODE.to_string() => {}
+        Err(Error::Reset(code)) if code == STREAM_VIA_RESET_CODE => {}
         other => {
             return Err(format!(
                 "s3: expected reset {STREAM_VIA_RESET_CODE}, got {other:?}"
@@ -581,7 +581,7 @@ async fn stream_negative_client(
     }
     match conn.wait_closed().await {
         Some(CloseInfo { code, reason })
-            if code == u64::from(STREAM_CLOSE_CODE) && reason == STREAM_CLOSE_REASON => {}
+            if code == STREAM_CLOSE_CODE && reason == STREAM_CLOSE_REASON => {}
         other => return Err(format!("s4: expected the server's close, got {other:?}")),
     }
 
