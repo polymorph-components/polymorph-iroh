@@ -73,6 +73,24 @@ interface types {
         closed,
     }
 
+    /// The contents of a received QUIC application close (RFC 9000
+    /// CONNECTION_CLOSE carrying an application-supplied code and
+    /// reason). Read it with `connection.wait-closed`.
+    ///
+    /// A `close-info` exists only when the peer's application close
+    /// arrived: a connection that ends any other way — closed locally,
+    /// idle-timed-out, or lost to a transport error — has none, and
+    /// implementations never invent one.
+    record close-info {
+        /// The peer's application close code. QUIC carries codes up to
+        /// 2^62 - 1; any QUIC peer can send codes beyond the `u32`
+        /// range `connection.close` accepts.
+        code: u64,
+        /// The peer's close reason. QUIC carries raw bytes; bytes that
+        /// are not valid UTF-8 are replaced with U+FFFD.
+        reason: string,
+    }
+
     /// The wire currently carrying a `connection`'s packets. Read it
     /// with `connection.path`; it can change over the connection's
     /// life (see `connect` for the upgrade behavior).
@@ -90,7 +108,8 @@ interface types {
     /// their contents.
     variant error {
         /// The endpoint, connection, or stream was closed before the
-        /// operation completed.
+        /// operation completed. When the peer closed the connection,
+        /// `connection.wait-closed` reports its application close.
         closed,
         /// The peer reset the stream. The payload is the application
         /// reset code, decimal-rendered.
@@ -170,7 +189,7 @@ interface identity-from-keys {
 /// The stateful endpoint surface: one identity, its connections, and
 /// their streams.
 interface endpoint {
-    use types.{endpoint-id, endpoint-addr, connection-state, path-kind, error};
+    use types.{endpoint-id, endpoint-addr, connection-state, close-info, path-kind, error};
     use identity.{identity};
 
     /// Configuration for `endpoint.bind`: constructed around the
@@ -324,13 +343,19 @@ interface endpoint {
         recv-datagram: async func() -> result<list<u8>, error>;
 
         /// Close the connection with an application code and reason.
-        /// Idempotent; await `wait-closed` for completion. Dropping the
-        /// resource without calling `close` implies `close(0, "")`.
+        /// The peer reads them with `wait-closed`. Idempotent; await
+        /// `wait-closed` for completion. Dropping the resource without
+        /// calling `close` implies `close(0, "")`.
         close: func(code: u32, reason: string);
 
-        /// Resolves once the connection is fully closed. Latched: once
-        /// closed, resolves immediately, any number of times.
-        wait-closed: async func();
+        /// Resolves once the connection is fully closed, with the
+        /// peer's application close when one was received and `none`
+        /// when the connection ended without one (see `close-info`).
+        ///
+        /// The result is latched: once the connection is closed, this
+        /// resolves immediately with the same value, any number of
+        /// times.
+        wait-closed: async func() -> option<close-info>;
     }
 
     /// The send half of a QUIC stream.

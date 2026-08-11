@@ -27,12 +27,20 @@ use bindings::exports::polymorph::iroh_demo::demo::{Guest, Role, RunConfig, RunR
 use bindings::polymorph::iroh::endpoint::{Connection, Endpoint, EndpointOptions};
 use bindings::polymorph::iroh::identity_from_keys::from_keys;
 use bindings::polymorph::iroh::identity_generate::generate;
-use bindings::polymorph::iroh::types::{EndpointAddr, Error, PathKind, TransportAddr};
+use bindings::polymorph::iroh::types::{CloseInfo, EndpointAddr, Error, PathKind, TransportAddr};
 use bindings::wasi::clocks::monotonic_clock;
 use polymorph_webcrypto_guest::{ecdsa, ed25519, SigningKeyOptions};
 
 /// The demo's ALPN protocol.
 const ALPN: &[u8] = b"iroh-demo/0";
+
+/// The application close the client sends when its exchange is done.
+/// The server asserts this exact close arrives through `wait-closed`,
+/// so the demo gates the close-info plumbing end to end; the values are
+/// mirrored in `tools/iroh-peer` (the upstream interop peer plays both
+/// sides of the same assertion).
+const CLOSE_CODE: u32 = 17;
+const CLOSE_REASON: &str = "demo done";
 
 /// Cap on one read call; the demo's payloads are tiny.
 const READ_MAX: u32 = 16 * 1024;
@@ -190,8 +198,13 @@ async fn run_client(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     };
     let path = path_name(conn.path());
 
-    conn.close(0, "done");
-    conn.wait_closed().await;
+    conn.close(CLOSE_CODE, CLOSE_REASON);
+    // A locally initiated close carries no peer close-info.
+    if let Some(info) = conn.wait_closed().await {
+        return Err(format!(
+            "locally closed connection reported a peer close: {info:?}"
+        ));
+    }
 
     let received = match config.payload_bytes {
         Some(_) => format!("{} bytes", echoed.len()),
@@ -273,8 +286,17 @@ async fn run_server(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     let path = path_name(conn.path());
 
     // The client closes once it has its echo; that close is the demo's
-    // natural end on this side.
-    conn.wait_closed().await;
+    // natural end on this side, and `wait-closed` must surface its
+    // exact code and reason.
+    match conn.wait_closed().await {
+        Some(CloseInfo { code, reason })
+            if code == u64::from(CLOSE_CODE) && reason == CLOSE_REASON => {}
+        other => {
+            return Err(format!(
+                "expected the client's close ({CLOSE_CODE}, {CLOSE_REASON:?}), got: {other:?}"
+            ))
+        }
+    }
 
     Ok(RunReport {
         endpoint_id: String::new(),

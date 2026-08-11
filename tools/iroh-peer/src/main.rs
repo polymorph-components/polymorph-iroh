@@ -12,10 +12,19 @@ use std::net::SocketAddr;
 
 use anyhow::{anyhow, bail, Context, Result};
 use iroh::endpoint::presets;
+use iroh::endpoint::{ApplicationClose, ConnectionError};
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 
 /// The ALPN the endpoint demo speaks.
 const ALPN: &[u8] = b"iroh-demo/0";
+
+/// The application close the client hangs up with, mirroring the
+/// endpoint demo's constants (`endpoint-demo/src/lib.rs`). Each side's
+/// server asserts the other side's client close arrives intact, so the
+/// interop rows gate the application close in both directions across
+/// the upstream/wasm boundary.
+const CLOSE_CODE: u32 = 17;
+const CLOSE_REASON: &[u8] = b"demo done";
 
 enum Role {
     Client,
@@ -122,7 +131,16 @@ async fn run_server(endpoint: &Endpoint, cli: &Cli) -> Result<()> {
         }
         println!("echoed datagram ({} bytes)", payload.len());
     }
-    conn.closed().await;
+    // The demo client hangs up with its fixed application close; assert
+    // it crossed the wire intact into upstream's read of it.
+    let closed = conn.closed().await;
+    let expected = ConnectionError::ApplicationClosed(ApplicationClose {
+        error_code: CLOSE_CODE.into(),
+        reason: CLOSE_REASON.to_vec().into(),
+    });
+    if closed != expected {
+        bail!("expected the demo client's close ({CLOSE_CODE}, {CLOSE_REASON:?}), got: {closed:?}");
+    }
     println!("OK: server finished.");
     Ok(())
 }
@@ -164,7 +182,7 @@ async fn run_client(endpoint: &Endpoint, cli: &Cli) -> Result<()> {
         }
         println!("received datagram ({} bytes)", echoed.len());
     }
-    conn.close(0u32.into(), b"done");
+    conn.close(CLOSE_CODE.into(), CLOSE_REASON);
     println!("OK: client finished.");
     Ok(())
 }

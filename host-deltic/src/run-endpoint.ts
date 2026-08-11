@@ -57,7 +57,7 @@ import {
   utf8,
 } from "./harness.ts";
 import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
-import type { Connection, Endpoint, PathKind, TransportAddr } from "./types.ts";
+import type { CloseInfo, Connection, Endpoint, PathKind, TransportAddr } from "./types.ts";
 import {
   check,
   installPanicWatchdog,
@@ -71,6 +71,12 @@ import {
 
 const ALPN = utf8.encode("iroh-demo/0");
 const MESSAGE = "hello through the endpoint surface";
+
+// The application close the client hangs up with; the server must read
+// exactly this from `wait-closed` (mirrors the endpoint demo's
+// constants).
+const CLOSE_CODE = 17;
+const CLOSE_REASON = "demo done";
 
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
@@ -112,6 +118,8 @@ interface EchoReport {
   readonly echoed: string;
   readonly clientPath: PathKind;
   readonly serverPath: PathKind;
+  /** What the server's `wait-closed` surfaced: the client's close. */
+  readonly serverCloseInfo: CloseInfo;
   readonly notes: string[];
 }
 
@@ -156,9 +164,9 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
     await send.finish();
     // Teardown discipline: the peer's close must be awaited, or
     // CONNECTION_CLOSE may go unsent.
-    await deadline(conn.waitClosed(), 30_000, "server wait-closed");
+    const closeInfo = await deadline(conn.waitClosed(), 30_000, "server wait-closed");
     const path = await conn.path();
-    return { received, peer: await conn.peer(), path, conn };
+    return { received, peer: await conn.peer(), path, closeInfo, conn };
   })();
 
   const [send, recv] = await deadline(clientConn.openBi(), 30_000, "client open-bi");
@@ -185,13 +193,37 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
   // race the move it is trying to observe.
   const clientPath = await clientConn.path();
 
-  await clientConn.close(0, "done");
-  await deadline(clientConn.waitClosed(), 30_000, "client wait-closed");
+  await clientConn.close(CLOSE_CODE, CLOSE_REASON);
+  const clientCloseInfo = await deadline(clientConn.waitClosed(), 30_000, "client wait-closed");
   const s = await deadline(serverSide, 30_000, "server side");
 
   if (hex(s.peer) !== hex(clientId)) {
     throw new Error(
       `the server authenticated ${shortId(s.peer)}, not the client's ${shortId(clientId)}`,
+    );
+  }
+
+  // The close-info contract, both directions: the closing side's own
+  // `wait-closed` reports none (a locally initiated close), and the
+  // closed-on side reads the exact application close that was sent.
+  if (clientCloseInfo !== undefined) {
+    throw new Error(
+      `the client closed locally, but its wait-closed reported a peer close: ` +
+        `(${clientCloseInfo.code}, ${JSON.stringify(clientCloseInfo.reason)})`,
+    );
+  }
+  const serverCloseInfo = s.closeInfo;
+  if (
+    serverCloseInfo === undefined ||
+    serverCloseInfo.code !== BigInt(CLOSE_CODE) ||
+    serverCloseInfo.reason !== CLOSE_REASON
+  ) {
+    throw new Error(
+      `the server's wait-closed did not surface the client's close ` +
+        `(${CLOSE_CODE}, ${JSON.stringify(CLOSE_REASON)}); got ` +
+        (serverCloseInfo
+          ? `(${serverCloseInfo.code}, ${JSON.stringify(serverCloseInfo.reason)})`
+          : "none"),
     );
   }
 
@@ -207,6 +239,7 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
     echoed,
     clientPath,
     serverPath: s.path,
+    serverCloseInfo,
     notes,
   };
 }
@@ -314,6 +347,12 @@ async function main(): Promise<number> {
       check(v, r.echoed === MESSAGE.toUpperCase(), `the client read back the echo`);
       check(v, r.clientPath === "relay", `connection.path is "relay" on the client`);
       check(v, r.serverPath === "relay", `connection.path is "relay" on the server`);
+      check(
+        v,
+        r.serverCloseInfo.code === BigInt(CLOSE_CODE) && r.serverCloseInfo.reason === CLOSE_REASON,
+        `the server read the client's application close (${CLOSE_CODE}, ` +
+          `${JSON.stringify(CLOSE_REASON)}) from wait-closed`,
+      );
       check(v, udpCallLog().length === 0, "zero wasi:sockets calls (relay wire only)");
       v.detail = `handshake ${r.handshakeMs.toFixed(0)} ms, roundtrip ${
         r.roundtripMs.toFixed(0)
