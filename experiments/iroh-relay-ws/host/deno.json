@@ -5,10 +5,10 @@
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
   },
   "imports": {
-    "@deltic/runtime/embedder": "https://raw.githubusercontent.com/lann/deltic/pre-eb3f8d0/runtime/src/embedder/mod.ts",
-    "@deltic/runtime/plan": "https://raw.githubusercontent.com/lann/deltic/pre-eb3f8d0/runtime/src/plan/mod.ts",
-    "@deltic/runtime/shim": "https://raw.githubusercontent.com/lann/deltic/pre-eb3f8d0/runtime/src/shim/mod.ts",
-    "@deltic/wasi-shims": "https://raw.githubusercontent.com/lann/deltic/pre-eb3f8d0/wasi-shims/src/mod.ts",
+    "@deltic/runtime/embedder": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/runtime/src/embedder/mod.ts",
+    "@deltic/runtime/plan": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/runtime/src/plan/mod.ts",
+    "@deltic/runtime/shim": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/runtime/src/shim/mod.ts",
+    "@deltic/wasi-shims": "https://raw.githubusercontent.com/lann/deltic/pre-a67ee83/wasi-shims/src/mod.ts",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "werift": "npm:werift@0.22.2"
