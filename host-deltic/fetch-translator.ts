@@ -16,9 +16,9 @@
 // `deno install --allow-scripts=npm:node-datachannel` in this directory to
 // regenerate it (commit the diff).
 
-const TAG = "pre-58b2404";
+const TAG = "pre-a67ee83";
 const TRANSLATOR_SHA256 =
-  "6d02b363785593595a789d083cda0aebb1de790726718ccf543198354fa3870c";
+  "2a2c9bbd3dfc009f301bdce9101116b237593bd8e17a06f412b000e2d4d4c220";
 const ASSET = "deltic-translator-shim.wasm";
 
 const HERE = new URL(".", import.meta.url);
@@ -38,21 +38,31 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .join("");
 }
 
-/** The one-pin-everywhere gate: every raw.githubusercontent URL in the
- * sibling import map must reference TAG. */
+/** The one-pin-everywhere gate: every raw.githubusercontent deltic URL in
+ * the sibling import map — and in the experiments' shared config and the
+ * ping demo's build-time translate step, which ride the same release —
+ * must reference TAG. */
 async function assertPinConsistency(): Promise<void> {
-  const configUrl = new URL("deno.json", HERE);
-  const denoJson = await Deno.readTextFile(configUrl);
-  const urls = denoJson.match(/https:\/\/raw\.githubusercontent\.com[^"]+/g) ?? [];
-  if (urls.length === 0) {
-    throw new Error(`${configUrl.pathname}: no pinned deltic URLs found`);
-  }
-  for (const url of urls) {
-    if (!url.includes(`/lann/deltic/${TAG}/`)) {
-      throw new Error(
-        `pin drift: ${configUrl.pathname} pins ${url}\n` +
-          `but fetch-translator.ts pins ${TAG}`,
-      );
+  const pinned = [
+    new URL("deno.json", HERE),
+    new URL("../experiments/iroh-relay-ws/host/deno.json", HERE),
+    new URL("../experiments/ping-demo/build.sh", HERE),
+  ];
+  for (const fileUrl of pinned) {
+    const text = await Deno.readTextFile(fileUrl);
+    const urls = text.match(
+      /https:\/\/raw\.githubusercontent\.com\/lann\/deltic[^"\s]+/g,
+    ) ?? [];
+    if (fileUrl.pathname.endsWith("deno.json") && urls.length === 0) {
+      throw new Error(`${fileUrl.pathname}: no pinned deltic URLs found`);
+    }
+    for (const url of urls) {
+      if (!url.includes(`/lann/deltic/${TAG}/`)) {
+        throw new Error(
+          `pin drift: ${fileUrl.pathname} pins ${url}\n` +
+            `but fetch-translator.ts pins ${TAG}`,
+        );
+      }
     }
   }
 }

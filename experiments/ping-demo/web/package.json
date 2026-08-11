@@ -1,0 +1,14 @@
+{
+  "name": "ping-demo-web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Ping demo page harness deps: Playwright for the browser leg (the page itself is a static bundle assembled by ../build.sh).",
+  "scripts": {
+    "test": "node test.mjs",
+    "build": "../build.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}
