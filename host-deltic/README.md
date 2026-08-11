@@ -83,7 +83,18 @@ diff.
 ## Module identity
 
 deltic's wasi-shims and the sibling deltic host modules import
-`@deltic/runtime/embedder` by bare specifier internally; `deno.json`
-maps that specifier once for the whole module graph, so there is exactly
-one `WitError`/`Stream` module instance and `instanceof` holds across
-every boundary.
+`@deltic/runtime/embedder` by bare specifier internally. This config's
+import map does NOT govern the sibling checkouts' files: a `.deps`
+module under its own package-shaped `deno.json` (name + exports)
+resolves its bare specifiers against THAT config — before the `.deps`
+pins converged on JSR-consuming sibling revisions, the webcrypto module
+silently rode a raw pinned-tag embedder while everything else used the
+JSR one, and `instanceof WitError` did not hold across its boundary.
+Identity therefore rests on every config in the graph — this one and
+each pinned sibling's — naming the SAME `jsr:@deltic/*` version, so the
+resolver dedupes to one `WitError`/`Stream` module instance. Two gates
+in `just exam-deltic` keep it true: the pin grep (this repo's configs
+agree) and `scripts/deltic-identity-gate.ts` (the RESOLVED run-endpoint
+graph carries exactly one `@deltic/runtime` and no raw URLs). Bumping a
+`.deps` pin to a sibling revision that consumes a different deltic
+version trips the gate; converge the versions instead.
