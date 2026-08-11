@@ -83,7 +83,7 @@ const MESSAGE = "hello through the endpoint surface";
 // The application close the client hangs up with; the server must read
 // exactly this from `wait-closed` (mirrors the endpoint demo's
 // constants).
-const CLOSE_CODE = 17;
+const CLOSE_CODE = 17n;
 const CLOSE_REASON = "demo done";
 
 // The datagram ceiling the relay path must discover (issue #47): the
@@ -228,7 +228,7 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
   const serverCloseInfo = s.closeInfo;
   if (
     serverCloseInfo === undefined ||
-    serverCloseInfo.code !== BigInt(CLOSE_CODE) ||
+    serverCloseInfo.code !== CLOSE_CODE ||
     serverCloseInfo.reason !== CLOSE_REASON
   ) {
     throw new Error(
@@ -341,7 +341,7 @@ async function terminalProbeOnce(relay: Relay): Promise<TerminalReport> {
   await csend.finish();
   const [ssend, srecv] = await deadline(sconn.acceptBi(), 30_000, "accept-bi");
   await readAll(srecv);
-  await ssend.reset(77);
+  await ssend.reset(77n);
   const reset = await readOutcome(crecv);
   const resetLatched = await readOutcome(crecv);
 
@@ -353,7 +353,7 @@ async function terminalProbeOnce(relay: Relay): Promise<TerminalReport> {
   const [ssend2, srecv2] = await deadline(sconn.acceptBi(), 30_000, "accept-bi 2");
   await readAll(srecv2);
   await ssend2.write(utf8.encode("tail")); // deliberately left unfinished
-  await sconn.close(9, "cut");
+  await sconn.close(9n, "cut");
   const closed = await readOutcome(crecv2);
   const info = await deadline(conn.waitClosed(), 30_000, "client wait-closed");
   const closeInfo = info === undefined ? "none" : `(${info.code}, ${JSON.stringify(info.reason)})`;
@@ -459,7 +459,7 @@ async function main(): Promise<number> {
       check(v, r.serverPath === "relay", `connection.path is "relay" on the server`);
       check(
         v,
-        r.serverCloseInfo.code === BigInt(CLOSE_CODE) && r.serverCloseInfo.reason === CLOSE_REASON,
+        r.serverCloseInfo.code === CLOSE_CODE && r.serverCloseInfo.reason === CLOSE_REASON,
         `the server read the client's application close (${CLOSE_CODE}, ` +
           `${JSON.stringify(CLOSE_REASON)}) from wait-closed`,
       );

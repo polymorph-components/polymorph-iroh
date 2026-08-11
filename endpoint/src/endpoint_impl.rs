@@ -108,6 +108,13 @@ fn transport_config() -> Arc<TransportConfig> {
     Arc::new(config)
 }
 
+/// An application code (close, reset, stop) as QUIC's variable-length
+/// integer. QUIC carries at most 2^62 - 1; larger values saturate, as
+/// the WIT documents.
+fn app_code(code: u64) -> VarInt {
+    VarInt::from_u64(code).unwrap_or(VarInt::MAX)
+}
+
 pub(crate) type Shared = Rc<RefCell<State>>;
 
 pub(crate) struct State {
@@ -1622,13 +1629,13 @@ impl GuestConnection for ConnectionRes {
         .await
     }
 
-    fn close(&self, code: u32, reason: String) {
+    fn close(&self, code: u64, reason: String) {
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
         if entry.error.is_none() && !entry.drained {
             entry.conn.close(
                 Instant::now(),
-                VarInt::from_u32(code),
+                app_code(code),
                 bytes::Bytes::from(reason.into_bytes()),
             );
             // Flush the CONNECTION_CLOSE.
@@ -1673,7 +1680,7 @@ async fn write_all(
                 }
                 Err(WriteError::Blocked) => break None,
                 Err(WriteError::Stopped(code)) => {
-                    break Some(Err(Error::Reset(code.to_string())));
+                    break Some(Err(Error::Reset(code.into_inner())));
                 }
                 Err(WriteError::ClosedStream) => break Some(Err(Error::Closed)),
             }
@@ -1741,7 +1748,7 @@ async fn read_some(
                 Some(err) => Some(Err(err)),
                 None => None,
             },
-            Err(ReadError::Reset(code)) => Some(Err(Error::Reset(code.to_string()))),
+            Err(ReadError::Reset(code)) => Some(Err(Error::Reset(code.into_inner()))),
         }
     })
     .await
@@ -1764,18 +1771,15 @@ impl GuestSendStream for SendStreamRes {
                 st.kick_pump();
                 Ok(())
             }
-            Err(FinishError::Stopped(code)) => Err(Error::Reset(code.to_string())),
+            Err(FinishError::Stopped(code)) => Err(Error::Reset(code.into_inner())),
             Err(FinishError::ClosedStream) => Err(Error::Closed),
         }
     }
 
-    fn reset(&self, code: u32) {
+    fn reset(&self, code: u64) {
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
-        let _ = entry
-            .conn
-            .send_stream(self.id)
-            .reset(VarInt::from_u32(code));
+        let _ = entry.conn.send_stream(self.id).reset(app_code(code));
         // Flush the RESET_STREAM.
         st.kick_pump();
     }
@@ -1819,10 +1823,10 @@ impl GuestRecvStream for RecvStreamRes {
         }
     }
 
-    fn stop(&self, code: u32) {
+    fn stop(&self, code: u64) {
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
-        let _ = entry.conn.recv_stream(self.id).stop(VarInt::from_u32(code));
+        let _ = entry.conn.recv_stream(self.id).stop(app_code(code));
         // Flush the STOP_SENDING.
         st.kick_pump();
     }

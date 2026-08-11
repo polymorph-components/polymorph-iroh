@@ -82,9 +82,8 @@ interface types {
     /// idle-timed-out, or lost to a transport error — has none, and
     /// implementations never invent one.
     record close-info {
-        /// The peer's application close code. QUIC carries codes up to
-        /// 2^62 - 1; any QUIC peer can send codes beyond the `u32`
-        /// range `connection.close` accepts.
+        /// The peer's application close code. QUIC carries codes up
+        /// to 2^62 - 1.
         code: u64,
         /// The peer's close reason. QUIC carries raw bytes; bytes that
         /// are not valid UTF-8 are replaced with U+FFFD.
@@ -112,8 +111,8 @@ interface types {
         /// `connection.wait-closed` reports its application close.
         closed,
         /// The peer reset the stream. The payload is the application
-        /// reset code, decimal-rendered.
-        reset(string),
+        /// reset code.
+        reset(u64),
         /// Connection establishment failed: the relay was unreachable,
         /// the handshake failed, the peer refused every offered ALPN,
         /// or the attempt timed out.
@@ -358,8 +357,9 @@ interface endpoint {
         /// Close the connection with an application code and reason.
         /// The peer reads them with `wait-closed`. Idempotent; await
         /// `wait-closed` for completion. Dropping the resource without
-        /// calling `close` implies `close(0, "")`.
-        close: func(code: u32, reason: string);
+        /// calling `close` implies `close(0, "")`. QUIC carries codes
+        /// up to 2^62 - 1; larger values saturate to that ceiling.
+        close: func(code: u64, reason: string);
 
         /// Resolves once the connection is fully closed, with the
         /// peer's application close when one was received and `none`
@@ -382,8 +382,10 @@ interface endpoint {
         /// writes may follow.
         finish: func() -> result<_, error>;
 
-        /// Abandon the stream, notifying the peer with `code`.
-        reset: func(code: u32);
+        /// Abandon the stream, notifying the peer with `code`. QUIC
+        /// carries codes up to 2^62 - 1; larger values saturate to
+        /// that ceiling.
+        reset: func(code: u64);
 
         /// Send the whole remaining payload through a byte stream,
         /// then finish. One-shot: after this call the resource accepts
@@ -406,8 +408,10 @@ interface endpoint {
         /// a failure.
         read: async func(max: u32) -> result<option<list<u8>>, error>;
 
-        /// Stop reading, notifying the peer with `code`.
-        stop: func(code: u32);
+        /// Stop reading, notifying the peer with `code`. QUIC carries
+        /// codes up to 2^62 - 1; larger values saturate to that
+        /// ceiling.
+        stop: func(code: u64);
 
         /// Take the stream's remaining bytes as a byte stream, with a
         /// future reporting how the stream ended. May be called once:

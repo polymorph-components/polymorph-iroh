@@ -46,7 +46,7 @@ export type PathKind = "relay" | "ip" | "webrtc";
 /** `polymorph:iroh/types@0.1.0`'s `error` variant. */
 export type IrohError =
   | { tag: "closed" }
-  | { tag: "reset"; val: string }
+  | { tag: "reset"; val: bigint }
   | { tag: "connect-failed"; val: string }
   | { tag: "invalid-argument"; val: string }
   | { tag: "other"; val: string };
@@ -99,7 +99,8 @@ export interface SendStream {
   write(bytes: Uint8Array): Promise<void>;
   /** Sync in WIT, Promise-shaped as an export (embedder-api "Functions and async"). */
   finish(): Promise<void>;
-  reset(code: number): Promise<void>;
+  /** u64 in WIT: QUIC codes reach 2^62 - 1; pass a bigint. */
+  reset(code: bigint): Promise<void>;
   [Symbol.dispose](): void;
   drop(): void;
 }
@@ -107,7 +108,8 @@ export interface SendStream {
 export interface RecvStream {
   /** `result<option<list<u8>>, error>`: resolves `undefined` at the peer's FIN. */
   read(max: number): Promise<Uint8Array | undefined>;
-  stop(code: number): Promise<void>;
+  /** u64 in WIT: QUIC codes reach 2^62 - 1; pass a bigint. */
+  stop(code: bigint): Promise<void>;
   [Symbol.dispose](): void;
   drop(): void;
 }
@@ -123,7 +125,8 @@ export interface Connection {
   acceptUni(): Promise<RecvStream>;
   /** `option<u32>`: path-dependent and not latched (see wit/iroh.wit). */
   maxDatagramSize(): Promise<number | undefined>;
-  close(code: number, reason: string): Promise<void>;
+  /** `code` is u64 in WIT: QUIC codes reach 2^62 - 1; pass a bigint. */
+  close(code: bigint, reason: string): Promise<void>;
   /** `option<close-info>`: `undefined` unless the peer's application close arrived. */
   waitClosed(): Promise<CloseInfo | undefined>;
   [Symbol.dispose](): void;
