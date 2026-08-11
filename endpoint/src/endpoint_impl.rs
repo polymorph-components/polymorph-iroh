@@ -58,13 +58,13 @@ use crate::bindings::polymorph::iroh::types::{
     CloseInfo, ConnectionState, EndpointAddr, Error, PathKind, TransportAddr,
 };
 use crate::bindings::wasi::clocks::monotonic_clock;
-use crate::bindings::wit_stream;
+use crate::bindings::{wit_future, wit_stream};
 use crate::identity::IdentityRes;
 use crate::udp::UdpWire;
 use crate::webrtc::{self, ChannelWire, SIGNAL_PREFIX};
 use crate::Component;
 use iroh_endpoint_core::relay::RelayConn;
-use wit_bindgen::rt::async_support::StreamReader;
+use wit_bindgen::rt::async_support::{FutureReader, StreamReader};
 
 /// The pump's tick: noq's deadlines, the waiters' deadline re-check
 /// cadence, and the bound on how stale a missed wake edge can go.
@@ -1112,6 +1112,12 @@ pub struct RecvStreamRes {
     handle: ConnectionHandle,
     id: StreamId,
     streaming: Cell<bool>,
+    /// The stream's first observed terminal outcome — `Ok` at the FIN,
+    /// the failure otherwise — repeated by every later `read`. The
+    /// latch keeps the outcome stable: a connection close after a
+    /// consumed FIN must not turn the clean end into a failure
+    /// (issue #13, finding A2).
+    terminal: RefCell<Option<Result<(), Error>>>,
 }
 
 impl Guest for Component {
@@ -1496,6 +1502,7 @@ impl ConnectionRes {
                 handle: self.handle,
                 id,
                 streaming: Cell::new(false),
+                terminal: RefCell::new(None),
             }),
         )
     }
@@ -1567,6 +1574,7 @@ impl GuestConnection for ConnectionRes {
             handle: self.handle,
             id,
             streaming: Cell::new(false),
+            terminal: RefCell::new(None),
         }))
     }
 
@@ -1679,7 +1687,10 @@ async fn write_all(
     .await
 }
 
-/// Read up to `max` bytes; `Ok(None)` at FIN.
+/// Read up to `max` bytes; `Ok(None)` at the peer's FIN — the only
+/// clean end. A failure is the stream's terminal outcome: the peer's
+/// reset, or the connection dying first. Bytes noq already delivered
+/// drain before a connection-level failure surfaces.
 async fn read_some(
     shared: &Shared,
     handle: ConnectionHandle,
@@ -1688,18 +1699,21 @@ async fn read_some(
 ) -> Result<Option<Vec<u8>>, Error> {
     wait_until(shared, move |st| {
         let entry = st.conns.get_mut(&handle).expect("connection entry");
-        if let Some(err) = &entry.error {
-            // A cleanly closed connection still ends streams cleanly.
-            if matches!(err, Error::Closed) {
-                return Some(Ok(None));
-            }
-            return Some(Err(err.clone()));
-        }
+        // Cloned before the stream borrow; consulted only once the
+        // stream itself has nothing more to deliver.
+        let conn_failure = entry.error.clone();
         let mut recv = entry.conn.recv_stream(id);
         let mut chunks = match recv.read(true) {
             Ok(chunks) => chunks,
-            // Already fully read or reset-and-consumed.
-            Err(ReadableError::ClosedStream) => return Some(Ok(None)),
+            // The stream's state is gone: spent by a consumed reset,
+            // or torn down with the connection. (A consumed FIN never
+            // re-enters: `read` latches it.)
+            Err(ReadableError::ClosedStream) => {
+                return Some(match conn_failure {
+                    Some(err) => Err(err),
+                    None => Ok(None),
+                });
+            }
             Err(ReadableError::IllegalOrderedRead) => {
                 return Some(Err(other("illegal ordered read")))
             }
@@ -1719,7 +1733,14 @@ async fn read_some(
                 st.kick_pump();
                 Some(Ok(None))
             }
-            Err(ReadError::Blocked) => None,
+            // Nothing readable now. With the connection failed nothing
+            // ever will be, and the stream did not reach its FIN — a
+            // connection close must not read as one (issue #13,
+            // finding A2).
+            Err(ReadError::Blocked) => match conn_failure {
+                Some(err) => Some(Err(err)),
+                None => None,
+            },
             Err(ReadError::Reset(code)) => Some(Err(Error::Reset(code.to_string()))),
         }
     })
@@ -1779,10 +1800,23 @@ impl GuestRecvStream for RecvStreamRes {
         if self.streaming.get() {
             return Err(other("the stream's bytes were taken by read-via-stream"));
         }
+        if let Some(terminal) = self.terminal.borrow().clone() {
+            return terminal.map(|()| None);
+        }
         if max == 0 {
             return Ok(Some(Vec::new()));
         }
-        read_some(&self.shared, self.handle, self.id, max).await
+        match read_some(&self.shared, self.handle, self.id, max).await {
+            Ok(Some(bytes)) => Ok(Some(bytes)),
+            Ok(None) => {
+                *self.terminal.borrow_mut() = Some(Ok(()));
+                Ok(None)
+            }
+            Err(err) => {
+                *self.terminal.borrow_mut() = Some(Err(err.clone()));
+                Err(err)
+            }
+        }
     }
 
     fn stop(&self, code: u32) {
@@ -1793,23 +1827,42 @@ impl GuestRecvStream for RecvStreamRes {
         st.kick_pump();
     }
 
-    fn read_via_stream(&self) -> Result<StreamReader<u8>, Error> {
+    fn read_via_stream(
+        &self,
+    ) -> Result<(StreamReader<u8>, FutureReader<Result<(), Error>>), Error> {
         if self.streaming.replace(true) {
             return Err(other("read-via-stream may be called once"));
         }
         let (mut writer, reader) = wit_stream::new();
+        // The default never surfaces: every pump path below writes an
+        // explicit outcome (a dropped FutureWriter writes its default).
+        let (done, done_reader) =
+            wit_future::new(|| Err(other("read-via-stream ended without a report")));
         let shared = self.shared.clone();
         let handle = self.handle;
         let id = self.id;
         wit_bindgen::spawn_local(async move {
-            while let Ok(Some(bytes)) = read_some(&shared, handle, id, 16 * 1024).await {
-                let remaining = writer.write_all(bytes).await;
-                if !remaining.is_empty() {
-                    break;
+            let outcome = loop {
+                match read_some(&shared, handle, id, 16 * 1024).await {
+                    Ok(Some(bytes)) => {
+                        let remaining = writer.write_all(bytes).await;
+                        if !remaining.is_empty() {
+                            // The consumer dropped the byte stream:
+                            // delivery is abandoned, and without
+                            // consuming, how the stream ends cannot be
+                            // learned.
+                            break Err(other(
+                                "read-via-stream abandoned: the byte stream was dropped",
+                            ));
+                        }
+                    }
+                    Ok(None) => break Ok(()),
+                    Err(err) => break Err(err),
                 }
-            }
-            // Dropping the writer ends the stream.
+            };
+            drop(writer);
+            let _ = done.write(outcome).await;
         });
-        Ok(reader)
+        Ok((reader, done_reader))
     }
 }

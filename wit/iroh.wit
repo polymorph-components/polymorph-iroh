@@ -395,17 +395,32 @@ interface endpoint {
     /// The receive half of a QUIC stream.
     resource recv-stream {
         /// Up to `max` bytes of the stream, in order; `none` at the
-        /// peer's FIN.
+        /// peer's FIN. The FIN is the only clean end.
+        ///
+        /// `error.reset` reports the peer abandoning the stream; QUIC
+        /// discards the stream's undelivered bytes with it.
+        /// `error.closed` reports the connection closing before the
+        /// FIN — bytes the connection already delivered drain first.
+        /// Either outcome is terminal and repeats on every later call:
+        /// a close after a consumed FIN never turns the clean end into
+        /// a failure.
         read: async func(max: u32) -> result<option<list<u8>>, error>;
 
         /// Stop reading, notifying the peer with `code`.
         stop: func(code: u32);
 
-        /// Take the stream's remaining bytes as a byte stream. May be
-        /// called once: after it, any call to it or to `read` fails
-        /// with `error.other`. The returned stream ends at the peer's
-        /// FIN.
-        read-via-stream: func() -> result<stream<u8>, error>;
+        /// Take the stream's remaining bytes as a byte stream, with a
+        /// future reporting how the stream ended. May be called once:
+        /// after it, any call to it or to `read` fails with
+        /// `error.other`.
+        ///
+        /// The byte stream ends at the peer's FIN, at a reset, and at
+        /// a connection close alike; the future tells them apart. It
+        /// resolves `ok` for the FIN, and otherwise the error `read`
+        /// would report. Dropping the byte stream abandons the read
+        /// path: delivery stops, the future resolves `error.other`,
+        /// and the peer learns nothing (tell it with `stop`).
+        read-via-stream: func() -> result<tuple<stream<u8>, future<result<_, error>>>, error>;
     }
 }
 

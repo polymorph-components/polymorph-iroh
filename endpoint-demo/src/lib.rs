@@ -24,12 +24,13 @@ mod bindings {
 }
 
 use bindings::exports::polymorph::iroh_demo::demo::{Guest, Role, RunConfig, RunReport};
-use bindings::polymorph::iroh::endpoint::{Connection, Endpoint, EndpointOptions};
+use bindings::polymorph::iroh::endpoint::{Connection, Endpoint, EndpointOptions, RecvStream};
 use bindings::polymorph::iroh::identity_from_keys::from_keys;
 use bindings::polymorph::iroh::identity_generate::generate;
 use bindings::polymorph::iroh::types::{CloseInfo, EndpointAddr, Error, PathKind, TransportAddr};
 use bindings::wasi::clocks::monotonic_clock;
 use polymorph_webcrypto_guest::{ecdsa, ed25519, SigningKeyOptions};
+use wit_bindgen::rt::async_support::StreamReader;
 
 /// The demo's ALPN protocol.
 const ALPN: &[u8] = b"iroh-demo/0";
@@ -107,6 +108,10 @@ impl Guest for Component {
         let _ = std::io::stdout().flush();
 
         let report = match config.role {
+            Role::Client if config.stream_negative => {
+                stream_negative_client(&endpoint, &config).await?
+            }
+            Role::Server if config.stream_negative => stream_negative_server(&endpoint).await?,
             Role::Client => run_client(&endpoint, &config).await?,
             Role::Server => run_server(&endpoint, &config).await?,
         };
@@ -446,6 +451,203 @@ fn datagram_summary(payload: &[u8]) -> String {
         Ok(text) if payload.len() <= 256 => text.to_string(),
         _ => format!("{} bytes", payload.len()),
     }
+}
+
+/// The stream-integrity probes' fixed codes (issue #13, findings
+/// A1/A2). The client asserts each read path's terminal outcome
+/// carries exactly these; the server sends them.
+const STREAM_RESET_CODE: u32 = 77;
+const STREAM_VIA_RESET_CODE: u32 = 78;
+const STREAM_CLOSE_CODE: u32 = 9;
+const STREAM_CLOSE_REASON: &str = "cut";
+
+/// Drain `recv` with `read` until its terminal outcome: `Ok` at the
+/// peer's FIN, the failure otherwise.
+async fn read_until_terminal(recv: &RecvStream) -> Result<(), Error> {
+    loop {
+        match recv.read(READ_MAX).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return Ok(()),
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+/// Collect a byte stream until it ends (however it ends: the paired
+/// future tells).
+async fn drain(mut data: StreamReader<u8>) -> Vec<u8> {
+    let mut all = Vec::new();
+    loop {
+        let (result, buf) = data.read(Vec::with_capacity(READ_MAX as usize)).await;
+        all.extend_from_slice(&buf);
+        match result {
+            wit_bindgen::StreamResult::Complete(_) => {}
+            wit_bindgen::StreamResult::Dropped | wit_bindgen::StreamResult::Cancelled => break,
+        }
+    }
+    all
+}
+
+/// The client half of the stream-integrity probes: four streams, each
+/// asserting one terminal outcome. A peer reset and a connection close
+/// must surface on `read` and on `read-via-stream`'s future — never as
+/// a clean FIN.
+async fn stream_negative_client(
+    endpoint: &Endpoint,
+    config: &RunConfig,
+) -> Result<RunReport, String> {
+    let peer_hex = config
+        .peer
+        .as_ref()
+        .ok_or("the client role requires the server's endpoint id (peer)")?;
+    let peer = hex::decode(peer_hex).map_err(|e| format!("bad endpoint id: {e}"))?;
+    let started = Instant::now();
+    let conn = endpoint
+        .connect(
+            EndpointAddr {
+                endpoint_id: peer,
+                addrs: vec![TransportAddr::Relay(config.relay_url.clone())],
+            },
+            ALPN.to_vec(),
+        )
+        .await
+        .map_err(fail("connect"))?;
+    let handshake_ms = started.elapsed().as_millis() as u64;
+
+    // S1 — a peer reset surfaces on `read`, and is latched.
+    let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s1"))?;
+    send.write(b"reset-me".to_vec())
+        .await
+        .map_err(fail("write s1"))?;
+    send.finish().map_err(fail("finish s1"))?;
+    match read_until_terminal(&recv).await {
+        Err(Error::Reset(code)) if code == STREAM_RESET_CODE.to_string() => {}
+        other => {
+            return Err(format!(
+                "s1: expected reset {STREAM_RESET_CODE}, got {other:?}"
+            ))
+        }
+    }
+    match recv.read(READ_MAX).await {
+        Err(Error::Reset(code)) if code == STREAM_RESET_CODE.to_string() => {}
+        other => return Err(format!("s1: reset not latched; second read got {other:?}")),
+    }
+
+    // S2 — read-via-stream: the FIN resolves the future ok.
+    let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s2"))?;
+    send.write(b"fin-me".to_vec())
+        .await
+        .map_err(fail("write s2"))?;
+    send.finish().map_err(fail("finish s2"))?;
+    let (data, done) = recv.read_via_stream().map_err(fail("read-via-stream s2"))?;
+    let bytes = drain(data).await;
+    match done.await {
+        Ok(()) if bytes == b"fin" => {}
+        Ok(()) => return Err(format!("s2: clean end with wrong bytes: {bytes:?}")),
+        Err(err) => return Err(format!("s2: expected a clean end, got {err:?}")),
+    }
+
+    // S3 — read-via-stream: a reset resolves the future with it. The
+    // bytes before the reset are QUIC's to discard; only the outcome
+    // is asserted.
+    let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s3"))?;
+    send.write(b"reset-stream-me".to_vec())
+        .await
+        .map_err(fail("write s3"))?;
+    send.finish().map_err(fail("finish s3"))?;
+    let (data, done) = recv.read_via_stream().map_err(fail("read-via-stream s3"))?;
+    let _partial = drain(data).await;
+    match done.await {
+        Err(Error::Reset(code)) if code == STREAM_VIA_RESET_CODE.to_string() => {}
+        other => {
+            return Err(format!(
+                "s3: expected reset {STREAM_VIA_RESET_CODE}, got {other:?}"
+            ))
+        }
+    }
+
+    // S4 — a connection close under an unfinished stream surfaces as
+    // `error.closed`, never as a clean FIN; the close itself stays
+    // readable through `wait-closed`.
+    let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s4"))?;
+    send.write(b"close-me".to_vec())
+        .await
+        .map_err(fail("write s4"))?;
+    send.finish().map_err(fail("finish s4"))?;
+    let path = path_name(conn.path());
+    match read_until_terminal(&recv).await {
+        Err(Error::Closed) => {}
+        other => return Err(format!("s4: expected closed, got {other:?}")),
+    }
+    match conn.wait_closed().await {
+        Some(CloseInfo { code, reason })
+            if code == u64::from(STREAM_CLOSE_CODE) && reason == STREAM_CLOSE_REASON => {}
+        other => return Err(format!("s4: expected the server's close, got {other:?}")),
+    }
+
+    Ok(RunReport {
+        endpoint_id: String::new(),
+        peer_id: hex::encode(conn.peer()),
+        path,
+        handshake_ms,
+        roundtrip_ms: 0,
+        received: "stream negative probes passed".into(),
+        datagram: None,
+    })
+}
+
+/// The server half of the stream-integrity probes: reset, answer,
+/// partially answer, then close the connection under an unfinished
+/// stream.
+async fn stream_negative_server(endpoint: &Endpoint) -> Result<RunReport, String> {
+    let conn = endpoint.accept().await.map_err(fail("accept"))?;
+
+    // S1: take the request, then abandon the send half.
+    let (send, recv) = conn.accept_bi().await.map_err(fail("accept-bi s1"))?;
+    read_until_terminal(&recv).await.map_err(fail("read s1"))?;
+    send.reset(STREAM_RESET_CODE);
+
+    // S2: answer and finish cleanly.
+    let (send, recv) = conn.accept_bi().await.map_err(fail("accept-bi s2"))?;
+    read_until_terminal(&recv).await.map_err(fail("read s2"))?;
+    send.write(b"fin".to_vec())
+        .await
+        .map_err(fail("write s2"))?;
+    send.finish().map_err(fail("finish s2"))?;
+
+    // S3: a partial answer, then the reset.
+    let (send, recv) = conn.accept_bi().await.map_err(fail("accept-bi s3"))?;
+    read_until_terminal(&recv).await.map_err(fail("read s3"))?;
+    send.write(b"par".to_vec())
+        .await
+        .map_err(fail("write s3"))?;
+    send.reset(STREAM_VIA_RESET_CODE);
+
+    // S4: leave the stream unfinished and close the connection under
+    // it.
+    let (send, recv) = conn.accept_bi().await.map_err(fail("accept-bi s4"))?;
+    read_until_terminal(&recv).await.map_err(fail("read s4"))?;
+    send.write(b"tail".to_vec())
+        .await
+        .map_err(fail("write s4"))?;
+    let path = path_name(conn.path());
+    let peer = hex::encode(conn.peer());
+    conn.close(STREAM_CLOSE_CODE, STREAM_CLOSE_REASON);
+    if let Some(info) = conn.wait_closed().await {
+        return Err(format!(
+            "locally closed connection reported a peer close: {info:?}"
+        ));
+    }
+
+    Ok(RunReport {
+        endpoint_id: String::new(),
+        peer_id: peer,
+        path,
+        handshake_ms: 0,
+        roundtrip_ms: 0,
+        received: "stream negative probes passed".into(),
+        datagram: None,
+    })
 }
 
 fn fail(what: &'static str) -> impl Fn(Error) -> String {

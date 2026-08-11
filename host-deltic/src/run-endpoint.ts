@@ -56,8 +56,16 @@ import {
   startRelay,
   utf8,
 } from "./harness.ts";
+import { WitError } from "@deltic/runtime/embedder";
 import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
-import type { CloseInfo, Connection, Endpoint, PathKind, TransportAddr } from "./types.ts";
+import type {
+  CloseInfo,
+  Connection,
+  Endpoint,
+  PathKind,
+  RecvStream,
+  TransportAddr,
+} from "./types.ts";
 import {
   check,
   installPanicWatchdog,
@@ -300,6 +308,78 @@ async function echoWithRetries(
 
 // --- the exam ---------------------------------------------------------------
 
+interface TerminalReport {
+  readonly reset: string;
+  readonly resetLatched: string;
+  readonly closed: string;
+  readonly closeInfo: string;
+}
+
+/**
+ * One run of the stream terminal-outcome probes (issue #13, finding
+ * A2): a peer reset and a connection close must surface on `read` —
+ * never as a clean FIN — and the outcome must be latched.
+ */
+async function terminalProbeOnce(relay: Relay): Promise<TerminalReport> {
+  const server = await newEndpointInstance({ label: "term-server" });
+  const client = await newEndpointInstance({ label: "term-client" });
+  const bindOptions = { alpns: [ALPN], relayUrl: relay.url, webrtc: false };
+  const sep = await deadline(bindEndpoint(server, bindOptions), 30_000, "server bind");
+  const cep = await deadline(bindEndpoint(client, bindOptions), 30_000, "client bind");
+  const serverId = await sep.id();
+
+  const conn = await deadline(
+    cep.connect({ endpointId: serverId, addrs: [{ tag: "relay", val: relay.url }] }, ALPN),
+    60_000,
+    "connect",
+  );
+  const sconn = await deadline(sep.accept(), 60_000, "accept");
+
+  // A peer reset must surface on read, and stay latched.
+  const [csend, crecv] = await deadline(conn.openBi(), 30_000, "open-bi");
+  await csend.write(utf8.encode("reset-me"));
+  await csend.finish();
+  const [ssend, srecv] = await deadline(sconn.acceptBi(), 30_000, "accept-bi");
+  await readAll(srecv);
+  await ssend.reset(77);
+  const reset = await readOutcome(crecv);
+  const resetLatched = await readOutcome(crecv);
+
+  // A connection close under an unfinished stream must surface as
+  // error.closed; the close itself stays readable (issue #48).
+  const [csend2, crecv2] = await deadline(conn.openBi(), 30_000, "open-bi 2");
+  await csend2.write(utf8.encode("close-me"));
+  await csend2.finish();
+  const [ssend2, srecv2] = await deadline(sconn.acceptBi(), 30_000, "accept-bi 2");
+  await readAll(srecv2);
+  await ssend2.write(utf8.encode("tail")); // deliberately left unfinished
+  await sconn.close(9, "cut");
+  const closed = await readOutcome(crecv2);
+  const info = await deadline(conn.waitClosed(), 30_000, "client wait-closed");
+  const closeInfo = info === undefined ? "none" : `(${info.code}, ${JSON.stringify(info.reason)})`;
+
+  await sep.close();
+  await cep.close();
+  return { reset, resetLatched, closed, closeInfo };
+}
+
+/** Drain reads to the stream's terminal outcome, rendered compactly. */
+async function readOutcome(recv: RecvStream): Promise<string> {
+  for (;;) {
+    let chunk: Uint8Array | undefined;
+    try {
+      chunk = await deadline(recv.read(65536), 30_000, "read to terminal");
+    } catch (err) {
+      if (err instanceof WitError) {
+        const p = err.payload as { tag?: string; val?: unknown } | undefined;
+        return p?.tag === "reset" ? `reset(${p.val})` : p?.tag ?? "unknown";
+      }
+      throw err;
+    }
+    if (chunk === undefined) return "fin";
+  }
+}
+
 async function main(): Promise<number> {
   installPanicWatchdog();
   console.log("iroh endpoint exam (deltic / stock Deno)");
@@ -490,7 +570,49 @@ async function main(): Promise<number> {
     });
 
     // -- 5 -------------------------------------------------------------------
-    await scenario(5, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(5, "stream terminal outcomes: reset and close, never a clean FIN", async (v) => {
+      let r: TerminalReport | undefined;
+      let lastError = "";
+      let panics = 0;
+      for (let attempt = 1; attempt <= ECHO_ATTEMPTS && !r; attempt++) {
+        takeGuestPanics();
+        try {
+          r = await terminalProbeOnce(relay);
+          await settle();
+          panics += takeGuestPanics().length;
+          if (attempt > 1 || panics > 0) {
+            v.notes.push(
+              `completed on attempt ${attempt}/${ECHO_ATTEMPTS}; ` +
+                `${panics} guest panic(s) (RefCell borrow hazard)`,
+            );
+          }
+        } catch (err) {
+          lastError = describeError(err);
+          panics += takeGuestPanics().length;
+          console.log(`  attempt ${attempt}/${ECHO_ATTEMPTS} failed: ${lastError}`);
+          await settle(100);
+        }
+      }
+      if (!r) throw new Error(`no attempt completed; last: ${lastError}`);
+      check(v, r.reset === "reset(77)", `read surfaced the peer reset: ${r.reset}`);
+      check(v, r.resetLatched === "reset(77)", `the reset outcome is latched: ${r.resetLatched}`);
+      check(
+        v,
+        r.closed === "closed",
+        `a close under an unfinished stream reads as error.closed: ${r.closed}`,
+      );
+      check(
+        v,
+        r.closeInfo === '(9, "cut")',
+        `wait-closed still carries the close after the failed read: ${r.closeInfo}`,
+      );
+      v.detail = `reset(77) latched; close read as ${r.closed} with close-info ${r.closeInfo}`;
+    });
+
+    // -- 6 -------------------------------------------------------------------
+    // Last by necessity: this scenario stops the relay every later
+    // scenario would need.
+    await scenario(6, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),

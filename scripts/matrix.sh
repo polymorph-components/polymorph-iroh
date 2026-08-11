@@ -268,6 +268,16 @@ else
     FAILURES=$((FAILURES + 1))
 fi
 
+# Stream-integrity terminal outcomes (issue #13, findings A1/A2),
+# asserted in-guest on both roles: a peer reset and a connection close
+# must surface on read and on read-via-stream's future — never as a
+# clean FIN — and stay latched.
+run_pair "endpoint-negative-stream" \
+    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+        --stream-negative -- \
+    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+        --stream-negative --peer
+
 # --------------------------------------------------------------------------
 
 if [ "$FAILURES" != 0 ]; then
