@@ -1135,6 +1135,9 @@ impl Drop for EndpointRes {
 pub struct ConnectionRes {
     shared: Shared,
     handle: ConnectionHandle,
+    /// `path-changes`' take-once claim: the family's watch convention
+    /// hands the stream to the first caller only.
+    watching: Cell<bool>,
 }
 
 pub struct SendStreamRes {
@@ -1595,6 +1598,7 @@ impl GuestEndpoint for EndpointRes {
         Ok(Connection::new(ConnectionRes {
             shared: self.shared.clone(),
             handle,
+            watching: Cell::new(false),
         }))
     }
 
@@ -1612,6 +1616,7 @@ impl GuestEndpoint for EndpointRes {
         Ok(Connection::new(ConnectionRes {
             shared: self.shared.clone(),
             handle,
+            watching: Cell::new(false),
         }))
     }
 
@@ -1634,6 +1639,25 @@ impl Drop for ConnectionRes {
         // The drop contract: `close(0, "")`. Idempotent on an already
         // closed or failed connection.
         GuestConnection::close(self, 0, String::new());
+    }
+}
+
+/// The wire currently carrying `handle`'s packets, by the route of its
+/// one network path: wire moves are route flips under a stable standin
+/// address (multipath is never negotiated), so the path's remote keys
+/// the route table.
+fn current_path(st: &State, handle: ConnectionHandle) -> PathKind {
+    let Some(entry) = st.conns.get(&handle) else {
+        return PathKind::Relay;
+    };
+    let Ok(path) = entry.conn.network_path(PathId::ZERO) else {
+        return PathKind::Relay;
+    };
+    match st.routes.get(&path.remote()) {
+        Some(RouteWire::Channel(_)) => PathKind::Webrtc,
+        Some(RouteWire::Relay(_)) => PathKind::Relay,
+        // Real addresses are never in the route table.
+        None => PathKind::Ip,
     }
 }
 
@@ -1715,21 +1739,42 @@ impl GuestConnection for ConnectionRes {
 
     fn path(&self) -> PathKind {
         let st = self.shared.borrow();
-        let Some(entry) = st.conns.get(&self.handle) else {
-            return PathKind::Relay;
-        };
-        // Wire moves are route flips under a stable standin address, so
-        // the connection's one path (multipath is never negotiated) keys
-        // the route table.
-        let Ok(path) = entry.conn.network_path(PathId::ZERO) else {
-            return PathKind::Relay;
-        };
-        match st.routes.get(&path.remote()) {
-            Some(RouteWire::Channel(_)) => PathKind::Webrtc,
-            Some(RouteWire::Relay(_)) => PathKind::Relay,
-            // Real addresses are never in the route table.
-            None => PathKind::Ip,
+        current_path(&st, self.handle)
+    }
+
+    fn path_changes(&self) -> StreamReader<PathKind> {
+        let (writer, reader) = wit_stream::new();
+        if self.watching.replace(true) {
+            // Taken already: the writer drops here, so the stream ends
+            // immediately — the family's watch convention.
+            return reader;
         }
+        let mut writer = writer;
+        let shared = self.shared.clone();
+        let handle = self.handle;
+        wit_bindgen::spawn_local(async move {
+            let mut last = None;
+            loop {
+                let next = wait_until(&shared, |st| {
+                    let entry = st.conns.get(&handle).expect("connection entry");
+                    if entry.drained || entry.error.is_some() {
+                        return Some(None);
+                    }
+                    let current = current_path(st, handle);
+                    (last != Some(current)).then_some(Some(current))
+                })
+                .await;
+                let Some(kind) = next else { break };
+                last = Some(kind);
+                let remaining = writer.write_all(vec![kind]).await;
+                if !remaining.is_empty() {
+                    // The watcher dropped the stream.
+                    break;
+                }
+            }
+            // Dropping the writer ends the stream.
+        });
+        reader
     }
 
     async fn open_bi(&self) -> Result<(SendStream, RecvStream), Error> {
