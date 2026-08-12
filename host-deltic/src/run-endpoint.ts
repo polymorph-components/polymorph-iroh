@@ -56,7 +56,7 @@ import {
   startRelay,
   utf8,
 } from "./harness.ts";
-import { WitError } from "@deltic/runtime/embedder";
+import { ComponentException } from "@deltic/runtime/embedder";
 import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
 import type {
   CloseInfo,
@@ -150,8 +150,8 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
   // The dial hints. A `webrtc` entry is an UPGRADE HINT, not a dial target:
   // the handshake runs on the relay and the packets move to the data channel
   // once it opens (wit/iroh.wit's transport-addr docs).
-  const addrs: TransportAddr[] = [{ tag: "relay", val: relay.url }];
-  if (options.webrtc) addrs.push({ tag: "webrtc", val: relay.url });
+  const addrs: TransportAddr[] = [{ kind: "relay", value: relay.url }];
+  if (options.webrtc) addrs.push({ kind: "webrtc", value: relay.url });
 
   // The server's accept. Parked BEFORE the dial it is the jco#13 shape (a
   // cross-task wakeup delivered to a task that parked first); deferred it
@@ -329,7 +329,7 @@ async function terminalProbeOnce(relay: Relay): Promise<TerminalReport> {
   const serverId = await sep.id();
 
   const conn = await deadline(
-    cep.connect({ endpointId: serverId, addrs: [{ tag: "relay", val: relay.url }] }, ALPN),
+    cep.connect({ endpointId: serverId, addrs: [{ kind: "relay", value: relay.url }] }, ALPN),
     60_000,
     "connect",
   );
@@ -370,9 +370,9 @@ async function readOutcome(recv: RecvStream): Promise<string> {
     try {
       chunk = await deadline(recv.read(65536), 30_000, "read to terminal");
     } catch (err) {
-      if (err instanceof WitError) {
-        const p = err.payload as { tag?: string; val?: unknown } | undefined;
-        return p?.tag === "reset" ? `reset(${p.val})` : p?.tag ?? "unknown";
+      if (err instanceof ComponentException) {
+        const p = err.payload as { kind?: string; value?: unknown } | undefined;
+        return p?.kind === "reset" ? `reset(${p.value})` : p?.kind ?? "unknown";
       }
       throw err;
     }

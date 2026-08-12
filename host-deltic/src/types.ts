@@ -4,8 +4,8 @@
 //
 //   * resource -> PascalCase class, methods camelCase, statics static
 //   * every export is Promise-shaped; `result<T, E>` in RETURN position
-//     resolves T or rejects `WitError<E>` (so no `{tag}` unwrapping here)
-//   * enums -> kebab-case string literal unions; variants -> `{ tag, val }`
+//     resolves T or rejects `ComponentException<E>` (so no `{kind}` unwrapping here)
+//   * enums -> kebab-case string literal unions; variants -> `{ kind, value }`
 //   * `list<u8>` -> Uint8Array; `option<T>` (outermost) -> `T | undefined`
 //   * record fields camelCase; option-typed fields are optional properties
 //
@@ -22,10 +22,10 @@ export interface CustomAddr {
 }
 
 export type TransportAddr =
-  | { tag: "relay"; val: string }
-  | { tag: "ip"; val: string }
-  | { tag: "webrtc"; val: string }
-  | { tag: "custom"; val: CustomAddr };
+  | { kind: "relay"; value: string }
+  | { kind: "ip"; value: string }
+  | { kind: "webrtc"; value: string }
+  | { kind: "custom"; value: CustomAddr };
 
 export interface EndpointAddr {
   endpointId: EndpointId;
@@ -45,11 +45,11 @@ export type PathKind = "relay" | "ip" | "webrtc";
 
 /** `polymorph:iroh/types@0.1.0`'s `error` variant. */
 export type IrohError =
-  | { tag: "closed" }
-  | { tag: "reset"; val: bigint }
-  | { tag: "connect-failed"; val: string }
-  | { tag: "invalid-argument"; val: string }
-  | { tag: "other"; val: string };
+  | { kind: "closed" }
+  | { kind: "reset"; value: bigint }
+  | { kind: "connect-failed"; value: string }
+  | { kind: "invalid-argument"; value: string }
+  | { kind: "other"; value: string };
 
 /** The `identity` resource: a non-extractable Ed25519 key pair. */
 export interface Identity {

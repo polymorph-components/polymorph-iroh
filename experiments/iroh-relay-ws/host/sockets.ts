@@ -22,7 +22,7 @@
 // Environment-portable: standard globals only; works under Deno and in
 // browsers.
 
-import { WitError } from "@deltic/runtime/embedder";
+import { ComponentException } from "@deltic/runtime/embedder";
 import { Pollable } from "@deltic/wasi-shims";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +43,8 @@ export interface Ipv4SocketAddress {
   address: [number, number, number, number];
 }
 export type IpSocketAddress =
-  | { tag: "ipv4"; val: Ipv4SocketAddress }
-  | { tag: "ipv6"; val: { port: number; flowInfo: number; address: number[]; scopeId: number } };
+  | { kind: "ipv4"; value: Ipv4SocketAddress }
+  | { kind: "ipv6"; value: { port: number; flowInfo: number; address: number[]; scopeId: number } };
 
 /** `wasi:sockets/udp.incoming-datagram` (record, camelCase fields). */
 export interface IncomingDatagram {
@@ -79,8 +79,8 @@ const theNetwork = new Network();
 /** The relay-ws bridge's well-known synthetic address (see the guest's
  * datagram-pipe use of iroh-relay's wasi `connect()`). */
 export const BRIDGE_ADDR: IpSocketAddress = {
-  tag: "ipv4",
-  val: { port: 1, address: [127, 0, 0, 1] },
+  kind: "ipv4",
+  value: { port: 1, address: [127, 0, 0, 1] },
 };
 
 let nextEphemeralPort = 0xc000;
@@ -104,7 +104,7 @@ export function registerBridge(port: number, cb: BridgeFn): void {
 const addrRoutes = new Map<string, BridgeFn>();
 
 const addrKey = (remoteAddress: IpSocketAddress): string =>
-  `${(remoteAddress.val.address as number[]).join(".")}:${remoteAddress.val.port}`;
+  `${(remoteAddress.value.address as number[]).join(".")}:${remoteAddress.value.port}`;
 
 /** Bridge hook: claim guest datagrams to one synthetic address. */
 export function registerAddrRoute(
@@ -168,12 +168,12 @@ export class OutgoingDatagramStream {
   send(datagrams: OutgoingDatagram[]): bigint {
     for (const d of datagrams) {
       stats.datagramsOut++;
-      const route = d.remoteAddress?.val ? addrRoutes.get(addrKey(d.remoteAddress)) : undefined;
+      const route = d.remoteAddress?.value ? addrRoutes.get(addrKey(d.remoteAddress)) : undefined;
       if (route) {
         route(this.#sock, d);
         continue;
       }
-      const port = d.remoteAddress?.val?.port;
+      const port = d.remoteAddress?.value?.port;
       const bridge = port === undefined ? undefined : bridges.get(port);
       if (bridge) {
         bridge(this.#sock, d);
@@ -223,18 +223,18 @@ export class UdpSocket {
     this.#pendingBind = localAddress;
   }
   finishBind(): void {
-    if (this.#pendingBind === null) throw new WitError("not-in-progress");
+    if (this.#pendingBind === null) throw new ComponentException("not-in-progress");
     let addr = this.#pendingBind;
     this.#pendingBind = null;
-    if (addr.val.port === 0) {
+    if (addr.value.port === 0) {
       addr = {
-        tag: addr.tag,
-        val: { ...addr.val, port: nextEphemeralPort++ },
+        kind: addr.kind,
+        value: { ...addr.value, port: nextEphemeralPort++ },
       } as IpSocketAddress;
     }
     this.localAddr = addr;
     this.bound = true;
-    socketsByPort.set(addr.val.port, this);
+    socketsByPort.set(addr.value.port, this);
   }
   stream(
     _remote?: IpSocketAddress,
@@ -242,11 +242,11 @@ export class UdpSocket {
     return [new IncomingDatagramStream(this), new OutgoingDatagramStream(this)];
   }
   localAddress(): IpSocketAddress {
-    if (!this.bound || this.localAddr === null) throw new WitError("invalid-state");
+    if (!this.bound || this.localAddr === null) throw new ComponentException("invalid-state");
     return this.localAddr;
   }
   remoteAddress(): IpSocketAddress {
-    throw new WitError("invalid-state");
+    throw new ComponentException("invalid-state");
   }
   addressFamily(): AddressFamily {
     return this.family;
@@ -274,7 +274,7 @@ export class UdpSocket {
 
 // TCP + name lookup: linked by the libc baseline, never functional.
 const unsupported = (): never => {
-  throw new WitError("not-supported");
+  throw new ComponentException("not-supported");
 };
 
 export class TcpSocket {
@@ -317,7 +317,7 @@ export class TcpSocket {
 
 export class ResolveAddressStream {
   resolveNextAddress(): never {
-    throw new WitError("permanent-resolver-failure");
+    throw new ComponentException("permanent-resolver-failure");
   }
   subscribe(): Pollable {
     return ready();
@@ -352,7 +352,7 @@ export function syntheticNetImports(): Record<string, unknown> {
     "wasi:sockets/ip-name-lookup@0.2": {
       ResolveAddressStream,
       resolveAddresses: (): never => {
-        throw new WitError("permanent-resolver-failure");
+        throw new ComponentException("permanent-resolver-failure");
       },
     },
   };

@@ -33,7 +33,7 @@ import {
 } from "../../iroh-relay-ws/host/sockets.ts";
 import { describeErr } from "../../iroh-relay-ws/host/errors.ts";
 
-const CONTROL_FROM: IpSocketAddress = { tag: "ipv4", val: { port: 2, address: [127, 0, 0, 1] } };
+const CONTROL_FROM: IpSocketAddress = { kind: "ipv4", value: { port: 2, address: [127, 0, 0, 1] } };
 const TAG_REGISTER = 0x00;
 const TAG_ASSIGNED = 0x01;
 const TAG_READY = 0x02;
@@ -105,7 +105,7 @@ export function beginUpgrade(
   { remoteIdHex, initiator, sendSignal, onStatus = () => {} }: UpgradeOptions,
 ): Upgrade {
   const remote = synAddr(remoteIdHex);
-  const remoteFrom: IpSocketAddress = { tag: "ipv4", val: remote };
+  const remoteFrom: IpSocketAddress = { kind: "ipv4", value: remote };
 
   const config = new PeerConnectionConfig();
   config.setIceServers(STUN);
@@ -126,7 +126,7 @@ export function beginUpgrade(
     if (channel) {
       overlayStats.out++;
       sendChain = sendChain
-        .then(() => channel!.send({ tag: "binary", val: bytes }))
+        .then(() => channel!.send({ kind: "binary", value: bytes }))
         .catch((err) => console.error(`[overlay] send failed: ${describeErr(err)}`));
     } else if (backlog.length < 64) {
       backlog.push(bytes);
@@ -147,7 +147,7 @@ export function beginUpgrade(
         }
         overlayStats.in++;
         const bytes =
-          message.tag === "binary" ? message.val : new TextEncoder().encode(message.val);
+          message.kind === "binary" ? message.value : new TextEncoder().encode(message.value);
         const sock = self_ && socketByLocalPort(self_.udpPort);
         if (sock) pushDatagram(sock, bytes, remoteFrom);
       }
@@ -180,7 +180,7 @@ export function beginUpgrade(
     for (const bytes of backlog.splice(0)) {
       overlayStats.out++;
       sendChain = sendChain
-        .then(() => channel!.send({ tag: "binary", val: bytes }))
+        .then(() => channel!.send({ kind: "binary", value: bytes }))
         .catch(() => {});
     }
     // Readiness gates the guest's add_external_addr.

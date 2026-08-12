@@ -26,7 +26,7 @@
 // extension once deltic's wasi-shims grow p3 `wasi:sockets` providers
 // (lann/deltic#4); this file is where that provider would be wired.
 
-import { WitError } from "@deltic/runtime/embedder";
+import { ComponentException } from "@deltic/runtime/embedder";
 
 /** `wasi:sockets/types@0.3.0`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";
@@ -58,10 +58,10 @@ export interface Ipv6SocketAddress {
   scopeId: number;
 }
 
-/** The `ip-socket-address` variant, in `{ tag, val }` form. */
+/** The `ip-socket-address` variant, in `{ kind, value }` form. */
 export type IpSocketAddress =
-  | { tag: "ipv4"; val: Ipv4SocketAddress }
-  | { tag: "ipv6"; val: Ipv6SocketAddress };
+  | { kind: "ipv4"; value: Ipv4SocketAddress }
+  | { kind: "ipv6"; value: Ipv6SocketAddress };
 
 /**
  * The `error-code` variant. Only the cases this stub can produce are
@@ -69,21 +69,21 @@ export type IpSocketAddress =
  * exhaustively against the real WIT vocabulary.
  */
 export type SocketErrorCode =
-  | { tag: "access-denied" }
-  | { tag: "not-supported" }
-  | { tag: "invalid-argument" }
-  | { tag: "out-of-memory" }
-  | { tag: "timeout" }
-  | { tag: "invalid-state" }
-  | { tag: "address-not-bindable" }
-  | { tag: "address-in-use" }
-  | { tag: "remote-unreachable" }
-  | { tag: "connection-refused" }
-  | { tag: "connection-broken" }
-  | { tag: "connection-reset" }
-  | { tag: "connection-aborted" }
-  | { tag: "datagram-too-large" }
-  | { tag: "other"; val?: string };
+  | { kind: "access-denied" }
+  | { kind: "not-supported" }
+  | { kind: "invalid-argument" }
+  | { kind: "out-of-memory" }
+  | { kind: "timeout" }
+  | { kind: "invalid-state" }
+  | { kind: "address-not-bindable" }
+  | { kind: "address-in-use" }
+  | { kind: "remote-unreachable" }
+  | { kind: "connection-refused" }
+  | { kind: "connection-broken" }
+  | { kind: "connection-reset" }
+  | { kind: "connection-aborted" }
+  | { kind: "datagram-too-large" }
+  | { kind: "other"; value?: string };
 
 const callLog: string[] = [];
 
@@ -99,11 +99,12 @@ export function resetUdpCallLog(): void {
 
 function refuse(what: string): never {
   callLog.push(what);
-  // A host import signals a WIT `err` by throwing a BRANDED `WitError`
-  // (contracts/embedder-api.md, "Error model"): an unbranded throw would
-  // become a trap naming the import instead of a guest-visible err.
-  const payload: SocketErrorCode = { tag: "not-supported" };
-  throw new WitError(payload, `wasi:sockets/types@0.3.0: ${what} is not provided by this host`);
+  // A host import signals a WIT `err` by throwing a BRANDED
+  // `ComponentException` (contracts/embedder-api.md, "Error model"): an
+  // unbranded throw would become a trap naming the import instead of a
+  // guest-visible err.
+  const payload: SocketErrorCode = { kind: "not-supported" };
+  throw new ComponentException(payload, `wasi:sockets/types@0.3.0: ${what} is not provided by this host`);
 }
 
 /**

@@ -16,11 +16,11 @@ JUST_VERSION="${JUST_VERSION:-1.54.0}"
 WAC_VERSION="${WAC_VERSION:-0.10.1}"
 
 WEBRTC_REPO=https://github.com/polymorph-components/polymorph-webrtc-datachannels.git
-WEBRTC_PIN=5dc3d4184d2ab82b98aa0ff82a218f9ed1e080eb
+WEBRTC_PIN=6612fbdc973843b68cc839b50a18d38bdacf938e
 WEBCRYPTO_REPO=https://github.com/polymorph-components/polymorph-webcrypto.git
-WEBCRYPTO_PIN=a0c924d3f10cc598e9ea2e754dc4f13f162dc749
+WEBCRYPTO_PIN=eba5f31a1a656d66a016f40077546123cff87259
 WEBSOCKET_REPO=https://github.com/polymorph-components/polymorph-websocket.git
-WEBSOCKET_PIN=a3b7fb1d0231c110b0bebb493276d23308642537
+WEBSOCKET_PIN=fa36ee8664a2f2b2e6ee5d6152321ac42b15b5d0
 IROH_REPO=https://github.com/n0-computer/iroh.git
 IROH_PIN=816dd70c056b813dcb5cbfb6a9a15e12d04b72b1 # v1.0.3
 TLS_REPO=https://github.com/polymorph-components/polymorph-tls.git

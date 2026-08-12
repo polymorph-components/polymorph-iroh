@@ -6,7 +6,7 @@
 // JSR-consuming sibling revisions): a sibling host module's own
 // package-shaped deno.json mapped @deltic/runtime/embedder to a raw
 // pinned-tag URL, so the graph carried TWO embedder module instances and
-// `instanceof WitError` silently stopped holding across that sibling's
+// `instanceof ComponentException` silently stopped holding across that sibling's
 // boundary. Config greps can't see this — only the resolved graph can —
 // so the exam pipes `deno info --json` through this assert.
 //
