@@ -278,6 +278,20 @@ run_pair "endpoint-negative-stream" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --stream-negative --peer
 
+# The accept backlog (issue #13, finding B7), asserted in-guest in one
+# process: dials past the backlog are refused with connect-failed, and
+# accepting drains room. The role/relay flags satisfy the driver; no
+# peer process exists.
+name="endpoint-negative-backlog"
+if timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    --backlog-negative > "$LOGDIR/$name.log" 2>&1 \
+    && grep -q "^OK:" "$LOGDIR/$name.log"; then
+    echo "PASS $name"
+else
+    echo "FAIL $name (logs in $LOGDIR)"
+    FAILURES=$((FAILURES + 1))
+fi
+
 # --------------------------------------------------------------------------
 
 if [ "$FAILURES" != 0 ]; then

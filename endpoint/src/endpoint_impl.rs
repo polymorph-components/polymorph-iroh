@@ -73,6 +73,14 @@ const TICK_NS: u64 = 10_000_000;
 /// Bounded window for final packets after `endpoint.close`.
 const LINGER: Duration = Duration::from_millis(500);
 
+/// The bound on connections handshaking or handshaken toward `accept`
+/// that no acceptor has claimed. At the bound, new incoming attempts
+/// are refused — the dialer sees the refusal as `connect-failed` — so
+/// an endpoint that is slow to accept (or never accepts) holds bounded
+/// state no matter how many peers can reach it (issue #13, finding
+/// B7). Accepting drains the backlog; refused peers may retry.
+const ACCEPT_BACKLOG: usize = 16;
+
 /// The packet-size ceiling every path's MTU discovery searches up to,
 /// and the largest UDP payload this endpoint advertises accepting
 /// (issue #47, amending issue #1's fixed-1200 ruling). Sized by
@@ -544,6 +552,16 @@ impl State {
                 if self.closed {
                     return;
                 }
+                // Backpressure on accept (issue #13, finding B7): past
+                // the backlog of un-accepted connections, new attempts
+                // are refused — the dialer sees the refusal — instead
+                // of handshaking and queueing without bound.
+                if self.accept_backlog() >= ACCEPT_BACKLOG {
+                    buf.clear();
+                    let transmit = self.noq.refuse(incoming, &mut buf);
+                    self.push_response(addr, source, &buf[..transmit.size]);
+                    return;
+                }
                 buf.clear();
                 match self.noq.accept(incoming, now, &mut buf, None) {
                     Ok((handle, conn)) => {
@@ -578,6 +596,17 @@ impl State {
             }
             _ => self.udp_outbound.push_back((addr, payload.to_vec())),
         }
+    }
+
+    /// Connections handshaking or handshaken toward `accept` that no
+    /// acceptor has claimed.
+    fn accept_backlog(&self) -> usize {
+        self.accept_queue.len()
+            + self
+                .conns
+                .values()
+                .filter(|e| e.accepted_side && !e.connected && e.error.is_none() && !e.drained)
+                .count()
     }
 
     fn handle_timeouts(&mut self) {
@@ -1545,7 +1574,15 @@ impl GuestEndpoint for EndpointRes {
         wait_until(&self.shared, |st| {
             let entry = st.conns.get_mut(&handle).expect("connection entry");
             if let Some(err) = &entry.error {
-                return Some(Err(err.clone()));
+                // A dial that dies before connecting failed to
+                // connect, whatever the mechanism — the peer's refusal
+                // and a handshake timeout both arrive as transport
+                // closes. Local endpoint closure stays `closed`.
+                return Some(Err(match err.clone() {
+                    Error::Closed => Error::Closed,
+                    Error::Other(msg) => Error::ConnectFailed(msg),
+                    other => other,
+                }));
             }
             if entry.connected {
                 return Some(Ok(()));

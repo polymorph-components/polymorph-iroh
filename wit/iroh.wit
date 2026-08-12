@@ -281,6 +281,12 @@ interface endpoint {
         /// connection, in an implementation-defined order. Cancelling
         /// a pending `accept` loses nothing: an undelivered connection
         /// stays queued.
+        ///
+        /// Connections finish their handshake and queue before any
+        /// acceptor exists — a peer's `connect` can resolve while this
+        /// endpoint is busy — up to an implementation-defined backlog.
+        /// Past the backlog, new attempts are refused and the dialer
+        /// fails `connect-failed`; accepting drains it.
         accept: async func() -> result<connection, error>;
 
         /// Close the endpoint: new connections are refused and existing

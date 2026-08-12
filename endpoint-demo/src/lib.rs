@@ -68,6 +68,9 @@ impl Guest for Component {
         if config.identity_negative {
             return run_identity_negative().await;
         }
+        if config.backlog_negative {
+            return run_backlog_negative(&config).await;
+        }
 
         // The identity is explicit: constructed through one of the
         // constructor interfaces, then handed to the options. The
@@ -829,6 +832,77 @@ async fn stream_negative_server(endpoint: &Endpoint) -> Result<RunReport, String
 
 fn fail(what: &'static str) -> impl Fn(Error) -> String {
     move |err| format!("{what}: {err:?}")
+}
+
+/// Mirrors the endpoint's accept backlog (`ACCEPT_BACKLOG` in
+/// endpoint/src/endpoint_impl.rs); the probe asserts refusal exactly
+/// past it, so a drift fails the gate loudly.
+const ACCEPT_BACKLOG: usize = 16;
+
+/// The accept-backlog probes (issue #13, finding B7), single-process:
+/// a victim endpoint that never accepts, and a prober that dials it.
+async fn run_backlog_negative(config: &RunConfig) -> Result<RunReport, String> {
+    let victim_identity = generate().await.map_err(fail("generate victim"))?;
+    let options = EndpointOptions::new(&victim_identity);
+    options.add_alpn(ALPN);
+    options.relay_url(&config.relay_url);
+    let victim = Endpoint::bind(options).await.map_err(fail("bind victim"))?;
+    let prober_identity = generate().await.map_err(fail("generate prober"))?;
+    let options = EndpointOptions::new(&prober_identity);
+    options.add_alpn(ALPN);
+    options.relay_url(&config.relay_url);
+    let prober = Endpoint::bind(options).await.map_err(fail("bind prober"))?;
+
+    let victim_addr = || EndpointAddr {
+        endpoint_id: victim.id(),
+        addrs: vec![TransportAddr::Relay(config.relay_url.clone())],
+    };
+
+    // Within the backlog: every dial handshakes and queues, no
+    // acceptor anywhere.
+    let mut held = Vec::new();
+    for i in 0..ACCEPT_BACKLOG {
+        let conn = prober
+            .connect(victim_addr(), ALPN.to_vec())
+            .await
+            .map_err(|e| format!("dial {i} within the backlog: {e:?}"))?;
+        held.push(conn);
+    }
+
+    // Past the backlog: refused, surfaced as connect-failed.
+    match prober.connect(victim_addr(), ALPN.to_vec()).await {
+        Err(Error::ConnectFailed(_)) => {}
+        Ok(_) => return Err("a dial past the backlog connected".into()),
+        Err(other) => {
+            return Err(format!(
+                "expected connect-failed past the backlog, got {other:?}"
+            ))
+        }
+    }
+
+    // Accepting drains the backlog: one accept makes room for one
+    // dial.
+    let accepted = victim.accept().await.map_err(fail("accept"))?;
+    let refill = prober
+        .connect(victim_addr(), ALPN.to_vec())
+        .await
+        .map_err(fail("dial after accept"))?;
+
+    drop(accepted);
+    drop(refill);
+    drop(held);
+    victim.close();
+    prober.close();
+
+    Ok(RunReport {
+        endpoint_id: hex::encode(prober.id()),
+        peer_id: hex::encode(victim.id()),
+        path: String::new(),
+        handshake_ms: 0,
+        roundtrip_ms: 0,
+        received: "accept backlog probes passed".into(),
+        datagram: None,
+    })
 }
 
 /// Silence the unused-import lint for the connection alias the bindings

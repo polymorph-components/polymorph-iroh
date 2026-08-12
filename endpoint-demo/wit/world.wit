@@ -73,6 +73,14 @@ interface demo {
         /// refuse concurrent use and release on cancellation. Both
         /// roles take part.
         stream-negative: bool,
+        /// Probe the accept backlog instead of running the echo: a
+        /// single process binds a victim endpoint that never accepts
+        /// and a prober that dials it — dials within the backlog
+        /// handshake and queue, the dial past it is refused with
+        /// `connect-failed`, and one `accept` drains room for the
+        /// next. No peer process; the relay URL is the only input
+        /// used.
+        backlog-negative: bool,
         /// The application message the client sends (the server echoes it).
         message: string,
     }
