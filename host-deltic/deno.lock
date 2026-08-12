@@ -606,6 +606,13 @@
       "jsr:@deltic/wasi-shims@0.1.0-pre.ga2f84a5",
       "npm:node-datachannel@0.32.3",
       "npm:werift@0.22.2"
-    ]
+    ],
+    "links": {
+      "jsr:@polymorph/webcrypto-deltic@0.0.0": {
+        "dependencies": [
+          "jsr:@deltic/runtime@0.1.0-pre.ga2f84a5"
+        ]
+      }
+    }
   }
 }
