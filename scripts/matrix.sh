@@ -14,9 +14,9 @@ RELAY_B_PORT=3342
 RELAY_B_URL="http://127.0.0.1:${RELAY_B_PORT}"
 SPIKE_WASM=target/wasm32-wasip2/release/iroh_spike_guest.wasm
 COMPOSED_WASM=target/components/iroh-demo.wasm
-HOST=target/release/iroh-spike-host
-EHOST=target/release/endpoint-demo
-IROH_PEER=target/release/iroh-peer
+HOST=target/host/iroh-spike-host
+EHOST=target/host/endpoint-demo
+IROH_PEER=target/host/iroh-peer
 LOGDIR=$(mktemp -d)
 FAILURES=0
 

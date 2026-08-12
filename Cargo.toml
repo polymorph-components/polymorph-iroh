@@ -21,3 +21,11 @@ publish = false
 [profile.release]
 lto = true
 opt-level = "s"
+
+# The native host binaries (test harnesses, not shipped artifacts).
+# Fat LTO buys real size on the guest components but only link time
+# here — and CI relinks the hosts every run, since freshly checked-out
+# path deps are always mtime-dirty. Thin LTO parallelizes the links.
+[profile.host]
+inherits = "release"
+lto = "thin"

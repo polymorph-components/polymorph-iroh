@@ -21,7 +21,7 @@ build-components:
 
 # Build the Wasmtime host binaries and the native interop peer.
 build-hosts:
-    cargo build -p iroh-spike-host-wasmtime -p iroh-peer --release
+    cargo build -p iroh-spike-host-wasmtime -p iroh-peer --profile host
 
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
@@ -51,7 +51,7 @@ validate-wit:
 # The execution-model probes on the Wasmtime host.
 probes: build build-components
     cargo build -p iroh-exec-model-guest --target wasm32-wasip2 --release
-    target/release/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
+    target/host/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.
 matrix: build relay-build
