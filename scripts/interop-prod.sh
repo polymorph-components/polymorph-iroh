@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 PROD_RELAY_A="${PROD_RELAY_A:-https://use1-1.relay.n0.iroh.link}"
 PROD_RELAY_B="${PROD_RELAY_B:-https://euc1-1.relay.n0.iroh.link}"
 COMPOSED_WASM=target/components/iroh-demo.wasm
-EHOST=target/release/endpoint-demo
+EHOST=target/host/endpoint-demo
 LOGDIR=$(mktemp -d)
 FAILURES=0
 
