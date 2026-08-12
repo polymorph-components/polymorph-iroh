@@ -23,9 +23,15 @@ interface types {
     /// transport ID, so they survive round trips through parties that
     /// do not understand them.
     variant transport-addr {
-        /// A relay server the peer keeps a connection open to (a URL).
+        /// A relay server the peer keeps a connection open to: an
+        /// `http` or `https` base URL. Use one spelling per relay —
+        /// implementations normalize at most minimally (equality is
+        /// implementation-defined beyond the exact string).
         relay(string),
-        /// A direct socket address, `ip:port`.
+        /// A direct socket address, `ip:port`: IPv4 dotted-quad or
+        /// bracketed IPv6 (`[2001:db8::1]:443`); IPv6 scope-id support
+        /// is implementation-defined. An entry that does not parse is
+        /// ignored for dialing but preserved.
         ip(string),
         /// Reachable over a WebRTC data channel, negotiated by signaling
         /// through the given relay server (a URL). Both peers must hold
@@ -273,10 +279,12 @@ interface endpoint {
         /// key fails `connect-failed`, never connects. The connection's
         /// ALPN is `alpn`, refused by the peer if it does not serve it.
         ///
-        /// The dial path: the first parseable `ip` entry when a UDP
-        /// socket is bound, the relay otherwise. There is no fallback
-        /// between dial paths: a chosen path that does not answer fails
-        /// `timed-out`.
+        /// Dial-path selection from `addr.addrs` is
+        /// implementation-defined: an implementation may prefer one
+        /// entry, race several, or fall back between them. A dial
+        /// that exhausts its selection without an answer fails
+        /// `timed-out`; a refusal or a handshake failure fails
+        /// `connect-failed`.
         ///
         /// A `webrtc` entry (with `endpoint-options.webrtc` set)
         /// upgrades a relay-dialed connection in the background: the
@@ -489,7 +497,9 @@ interface endpoint {
         /// FIN — bytes the connection already delivered drain first.
         /// Either outcome is terminal and repeats on every later call:
         /// a close after a consumed FIN never turns the clean end into
-        /// a failure. Cancelling a `read` consumes nothing.
+        /// a failure. Cancelling a `read` consumes nothing; a `read`
+        /// with `max` 0 resolves `some([])` without waiting or
+        /// consuming.
         read: async func(max: u32) -> result<option<list<u8>>, error>;
 
         /// Stop reading, notifying the peer with `code`. QUIC carries
@@ -514,12 +524,20 @@ interface endpoint {
 
 /// One iroh endpoint: transports and time in, peer connectivity out.
 ///
-/// The crypto imports (`polymorph:webcrypto`) are mostly consumed by
-/// the implementation directly and do not appear here; the `signature`
-/// interface does appear, because `identity-from-keys` accepts its key
-/// handles. The UDP direct path uses `wasi:sockets/types@0.3.0`, whose
-/// `udp-socket` resource carries the socket operations in the 0.3
-/// draft.
+/// This world names the interfaces the implementation binds
+/// deliberately; it is not the component's complete import set. The
+/// language toolchain adds a `wasi` 0.2 tail (io, cli, clocks,
+/// filesystem, random — `bind` draws its reset and token keys from
+/// `wasi:random` through the language's entropy source), and further
+/// `polymorph:webcrypto` interfaces arrive through the
+/// implementation's own bindings. The composed artifact's embedded
+/// WIT is the authoritative import manifest; read it with
+/// `wasm-tools component wit <component>`.
+///
+/// The `signature` interface appears because `identity-from-keys`
+/// accepts its key handles. The UDP direct path uses
+/// `wasi:sockets/types@0.3.0`, whose `udp-socket` resource carries
+/// the socket operations in the 0.3 draft.
 world iroh-endpoint {
     import polymorph:webcrypto/signature@0.1.0;
     import polymorph:webrtc-datachannels/connections@0.1.0;
