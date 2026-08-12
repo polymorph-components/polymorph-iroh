@@ -187,6 +187,14 @@ interface identity-from-keys {
 
 /// The stateful endpoint surface: one identity, its connections, and
 /// their streams.
+///
+/// Every `async` function is cancellable: the caller can cancel the
+/// in-progress call (a component-model subtask) while it waits.
+/// Unless a function's doc says otherwise, cancellation has no
+/// effect — nothing is consumed, opened, or lost. The exceptions are
+/// `connect` (the attempt is abandoned and the dial closed) and the
+/// two write paths (an unspecified prefix is committed; see
+/// `send-stream.write`).
 interface endpoint {
     use types.{endpoint-id, endpoint-addr, connection-state, close-info, path-kind, error};
     use identity.{identity};
@@ -258,6 +266,10 @@ interface endpoint {
         /// move to the data channel once it opens — `connection.path`
         /// reports the move. A failed upgrade leaves the connection on
         /// the relay; a channel that later dies moves it back.
+        ///
+        /// Cancelling the call abandons the attempt and closes the
+        /// dial; the peer may observe a connection that opens and
+        /// promptly closes.
         connect: async func(addr: endpoint-addr, alpn: list<u8>) -> result<connection, error>;
 
         /// The next accepted connection.
@@ -266,7 +278,9 @@ interface endpoint {
         /// it with `connection.peer` — and the negotiated ALPN is one
         /// of `endpoint-options.alpns`. Concurrent calls are supported;
         /// concurrently pending acceptors are each handed one
-        /// connection, in an implementation-defined order.
+        /// connection, in an implementation-defined order. Cancelling
+        /// a pending `accept` loses nothing: an undelivered connection
+        /// stays queued.
         accept: async func() -> result<connection, error>;
 
         /// Close the endpoint: new connections are refused and existing
@@ -296,7 +310,7 @@ interface endpoint {
         path: func() -> path-kind;
 
         /// Open a bidirectional stream. Resolves when stream credit is
-        /// available.
+        /// available. Cancelling a pending open opens nothing.
         open-bi: async func() -> result<tuple<send-stream, recv-stream>, error>;
 
         /// Open a unidirectional (outgoing) stream.
@@ -306,7 +320,8 @@ interface endpoint {
         ///
         /// Concurrent calls are supported; concurrently pending
         /// acceptors are each handed one stream, in an
-        /// implementation-defined order.
+        /// implementation-defined order. Cancelling a pending accept
+        /// loses nothing: an undelivered stream stays queued.
         accept-bi: async func() -> result<tuple<send-stream, recv-stream>, error>;
 
         /// The next peer-initiated unidirectional stream.
@@ -352,6 +367,7 @@ interface endpoint {
         /// buffered datagrams are dropped. Concurrent calls are
         /// supported; concurrently pending receivers are each handed
         /// one datagram, in an implementation-defined order.
+        /// Cancelling a pending receive consumes nothing.
         recv-datagram: async func() -> result<list<u8>, error>;
 
         /// Close the connection with an application code and reason.
@@ -372,29 +388,60 @@ interface endpoint {
     }
 
     /// The send half of a QUIC stream.
+    ///
+    /// One in-flight `write` (or `write-via-stream`) at a time: a
+    /// second concurrent call fails `error.other` immediately.
+    /// Concurrent writes would interleave at flow-control boundaries —
+    /// silent corruption for framed payloads — so the surface refuses
+    /// them. Dropping the resource without `finish` or `reset` implies
+    /// `reset(0)`: an abandoned stream must not leave the peer
+    /// waiting.
     resource send-stream {
         /// Write `bytes`, applying the stream's flow-control
         /// backpressure through the async ABI. Resolves when the bytes
         /// are accepted for delivery, not when they are delivered.
+        ///
+        /// Cancelling an in-flight `write` commits an unspecified
+        /// prefix of `bytes`; its length cannot be learned. `reset` is
+        /// the framing-safe recovery.
         write: async func(bytes: list<u8>) -> result<_, error>;
 
         /// Finish the stream: a FIN after all accepted writes. No
-        /// writes may follow.
+        /// writes may follow. Fails `error.other` while a `write` is
+        /// in flight — a FIN under it would truncate the payload.
         finish: func() -> result<_, error>;
 
         /// Abandon the stream, notifying the peer with `code`. QUIC
         /// carries codes up to 2^62 - 1; larger values saturate to
-        /// that ceiling.
+        /// that ceiling. Always available: it is the recovery for a
+        /// cancelled or abandoned write path.
         reset: func(code: u64);
 
         /// Send the whole remaining payload through a byte stream,
-        /// then finish. One-shot: after this call the resource accepts
-        /// no further writes; the returned future resolves when every
-        /// byte has been accepted and the FIN sent.
+        /// then finish. One-shot: after it, `write` and `finish` fail
+        /// `error.other` (the claim is not taken when the call is
+        /// refused for an in-flight `write`). Resolves when every byte
+        /// has been accepted and the FIN sent.
+        ///
+        /// The data stream's end is the payload's end: `finish`
+        /// follows automatically. A byte stream carries no failure
+        /// signal, so a producer that dies mid-payload finishes a
+        /// truncated payload — a protocol that must tell the two apart
+        /// frames its payload, or calls `reset` on failure.
+        /// Cancelling the call commits an unspecified prefix and
+        /// leaves the stream claimed and unfinished; recover with
+        /// `reset`.
         write-via-stream: async func(data: stream<u8>) -> result<_, error>;
     }
 
     /// The receive half of a QUIC stream.
+    ///
+    /// One in-flight `read` at a time: a second concurrent call fails
+    /// `error.other` immediately (concurrent reads would split the
+    /// byte sequence between callers). Dropping the resource before
+    /// the stream's end implies `stop(0)`; a stream whose end was
+    /// consumed, or whose bytes a `read-via-stream` owns, needs
+    /// nothing.
     resource recv-stream {
         /// Up to `max` bytes of the stream, in order; `none` at the
         /// peer's FIN. The FIN is the only clean end.
@@ -405,7 +452,7 @@ interface endpoint {
         /// FIN — bytes the connection already delivered drain first.
         /// Either outcome is terminal and repeats on every later call:
         /// a close after a consumed FIN never turns the clean end into
-        /// a failure.
+        /// a failure. Cancelling a `read` consumes nothing.
         read: async func(max: u32) -> result<option<list<u8>>, error>;
 
         /// Stop reading, notifying the peer with `code`. QUIC carries

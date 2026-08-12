@@ -64,12 +64,14 @@ interface demo {
         /// `invalid-argument`, and must accept a matched control pair.
         /// The run binds nothing and needs no relay or peer.
         identity-negative: bool,
-        /// Probe the stream read paths' terminal outcomes instead of
-        /// running the echo: a peer reset and a connection close must
-        /// each surface on `read` and on `read-via-stream`'s future,
-        /// never as a clean FIN. Both roles take part: the client
-        /// drives and asserts, the server resets, answers, and closes
-        /// under an unfinished stream.
+        /// Probe the stream and connect lifecycles instead of running
+        /// the echo: cancelled dials must leak nothing, a peer reset
+        /// and a connection close must surface on `read` and on
+        /// `read-via-stream`'s future (never as a clean FIN), dropped
+        /// stream halves must have their documented wire effects
+        /// (`reset(0)`, `stop(0)`), and the per-stream guards must
+        /// refuse concurrent use and release on cancellation. Both
+        /// roles take part.
         stream-negative: bool,
         /// The application message the client sends (the server echoes it).
         message: string,

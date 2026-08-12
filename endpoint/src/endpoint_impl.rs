@@ -1112,6 +1112,41 @@ pub struct SendStreamRes {
     shared: Shared,
     handle: ConnectionHandle,
     id: StreamId,
+    /// `write-via-stream`'s one-shot claim (issue #13, finding B6):
+    /// once taken, `write` and `finish` are refused.
+    streaming: Cell<bool>,
+    /// One in-flight `write` at a time (finding B4): concurrent writes
+    /// would interleave at flow-control boundaries — byte-level
+    /// corruption for framed payloads — so a second is refused.
+    writing: Cell<bool>,
+    /// Whether `finish` or `reset` ran. Guards the drop-implied
+    /// `reset(0)`: noq's `reset` replaces a pending FIN on a finished
+    /// stream, so resetting on drop unconditionally would corrupt the
+    /// finish-then-drop pattern.
+    ended: Cell<bool>,
+}
+
+impl SendStreamRes {
+    fn new(shared: Shared, handle: ConnectionHandle, id: StreamId) -> Self {
+        Self {
+            shared,
+            handle,
+            id,
+            streaming: Cell::new(false),
+            writing: Cell::new(false),
+            ended: Cell::new(false),
+        }
+    }
+}
+
+impl Drop for SendStreamRes {
+    fn drop(&mut self) {
+        // The drop contract: an unfinished, un-reset stream must not
+        // leave the peer waiting forever.
+        if !self.ended.get() {
+            GuestSendStream::reset(self, 0);
+        }
+    }
 }
 
 pub struct RecvStreamRes {
@@ -1125,6 +1160,96 @@ pub struct RecvStreamRes {
     /// consumed FIN must not turn the clean end into a failure
     /// (issue #13, finding A2).
     terminal: RefCell<Option<Result<(), Error>>>,
+    /// One in-flight `read` at a time (finding B4): concurrent reads
+    /// would split the byte sequence between callers, so a second is
+    /// refused.
+    reading: Cell<bool>,
+}
+
+impl RecvStreamRes {
+    fn new(shared: Shared, handle: ConnectionHandle, id: StreamId) -> Self {
+        Self {
+            shared,
+            handle,
+            id,
+            streaming: Cell::new(false),
+            terminal: RefCell::new(None),
+            reading: Cell::new(false),
+        }
+    }
+}
+
+impl Drop for RecvStreamRes {
+    fn drop(&mut self) {
+        // The drop contract: a reader that never saw the stream's end
+        // tells the peer to stop sending. A spent stream needs
+        // nothing; a claimed one belongs to its read-via-stream pump.
+        if !self.streaming.get() && self.terminal.borrow().is_none() {
+            GuestRecvStream::stop(self, 0);
+        }
+    }
+}
+
+/// Clears an in-flight-operation flag on every exit, including the
+/// operation's cancellation (the future dropped at an await point).
+struct Unclaim<'a>(&'a Cell<bool>);
+
+impl Drop for Unclaim<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+/// Closes a dial whose `connect` call was cancelled before it
+/// resolved. Without it the entry sits un-owned forever: the handshake
+/// completes, the peer sees a live connection, and nothing ever closes
+/// it (issue #13, finding B5). Disarmed on success; a dial that
+/// already failed has `error` set and the close is skipped.
+struct DialGuard {
+    shared: Shared,
+    handle: ConnectionHandle,
+    armed: bool,
+}
+
+impl Drop for DialGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut st = self.shared.borrow_mut();
+        if let Some(entry) = st.conns.get_mut(&self.handle) {
+            if entry.error.is_none() && !entry.drained {
+                entry.conn.close(
+                    Instant::now(),
+                    VarInt::from_u32(0),
+                    bytes::Bytes::from_static(b"connect cancelled"),
+                );
+                st.kick_pump();
+            }
+        }
+    }
+}
+
+/// Releases a relay-open claim whose `connect` was cancelled mid-open.
+/// Without it the slot stays claimed forever and every later dial of
+/// that relay waits out the open timeout (issue #13, finding B5).
+/// Disarmed once the open resolves either way.
+struct RelayClaim {
+    shared: Shared,
+    normalized: String,
+    armed: bool,
+}
+
+impl Drop for RelayClaim {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut st = self.shared.borrow_mut();
+        st.relay_opening.remove(&self.normalized);
+        // Waiters re-check and observe the open's disappearance.
+        st.wake_waiters();
+    }
 }
 
 impl Guest for Component {
@@ -1152,7 +1277,15 @@ impl EndpointRes {
             st.relay_opening.insert(normalized.clone())
         };
         if claimed {
+            // The claim is released on every exit — including this
+            // call's cancellation at the await below.
+            let mut claim = RelayClaim {
+                shared: self.shared.clone(),
+                normalized: normalized.clone(),
+                armed: true,
+            };
             let opened = RelayConn::connect(url, &self.identity).await;
+            claim.armed = false;
             let mut st = self.shared.borrow_mut();
             st.relay_opening.remove(&normalized);
             // Concurrent dialers of this relay wait on the outcome.
@@ -1401,6 +1534,14 @@ impl GuestEndpoint for EndpointRes {
             handle
         };
 
+        // The dial is closed if this call is cancelled while parked
+        // below; a completed handshake hands ownership to the returned
+        // resource.
+        let mut dial = DialGuard {
+            shared: self.shared.clone(),
+            handle,
+            armed: true,
+        };
         wait_until(&self.shared, |st| {
             let entry = st.conns.get_mut(&handle).expect("connection entry");
             if let Some(err) = &entry.error {
@@ -1412,6 +1553,7 @@ impl GuestEndpoint for EndpointRes {
             None
         })
         .await?;
+        dial.armed = false;
 
         Ok(Connection::new(ConnectionRes {
             shared: self.shared.clone(),
@@ -1447,6 +1589,14 @@ impl GuestEndpoint for EndpointRes {
             st.kick_pump();
             st.wake_waiters();
         }
+    }
+}
+
+impl Drop for ConnectionRes {
+    fn drop(&mut self) {
+        // The drop contract: `close(0, "")`. Idempotent on an already
+        // closed or failed connection.
+        GuestConnection::close(self, 0, String::new());
     }
 }
 
@@ -1499,18 +1649,8 @@ impl ConnectionRes {
 
     fn stream_pair(&self, id: StreamId) -> (SendStream, RecvStream) {
         (
-            SendStream::new(SendStreamRes {
-                shared: self.shared.clone(),
-                handle: self.handle,
-                id,
-            }),
-            RecvStream::new(RecvStreamRes {
-                shared: self.shared.clone(),
-                handle: self.handle,
-                id,
-                streaming: Cell::new(false),
-                terminal: RefCell::new(None),
-            }),
+            SendStream::new(SendStreamRes::new(self.shared.clone(), self.handle, id)),
+            RecvStream::new(RecvStreamRes::new(self.shared.clone(), self.handle, id)),
         )
     }
 }
@@ -1562,11 +1702,11 @@ impl GuestConnection for ConnectionRes {
 
     async fn open_uni(&self) -> Result<SendStream, Error> {
         let id = self.open_stream(Dir::Uni).await?;
-        Ok(SendStream::new(SendStreamRes {
-            shared: self.shared.clone(),
-            handle: self.handle,
+        Ok(SendStream::new(SendStreamRes::new(
+            self.shared.clone(),
+            self.handle,
             id,
-        }))
+        )))
     }
 
     async fn accept_bi(&self) -> Result<(SendStream, RecvStream), Error> {
@@ -1576,13 +1716,11 @@ impl GuestConnection for ConnectionRes {
 
     async fn accept_uni(&self) -> Result<RecvStream, Error> {
         let id = self.accept_stream(Dir::Uni).await?;
-        Ok(RecvStream::new(RecvStreamRes {
-            shared: self.shared.clone(),
-            handle: self.handle,
+        Ok(RecvStream::new(RecvStreamRes::new(
+            self.shared.clone(),
+            self.handle,
             id,
-            streaming: Cell::new(false),
-            terminal: RefCell::new(None),
-        }))
+        )))
     }
 
     fn max_datagram_size(&self) -> Option<u32> {
@@ -1754,12 +1892,11 @@ async fn read_some(
     .await
 }
 
-impl GuestSendStream for SendStreamRes {
-    async fn write(&self, bytes: Vec<u8>) -> Result<(), Error> {
-        write_all(&self.shared, self.handle, self.id, bytes).await
-    }
-
-    fn finish(&self) -> Result<(), Error> {
+impl SendStreamRes {
+    /// `finish` without the claim checks: `write-via-stream` finishes
+    /// its own claimed stream through here.
+    fn do_finish(&self) -> Result<(), Error> {
+        self.ended.set(true);
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
         if let Some(err) = &entry.error {
@@ -1775,8 +1912,33 @@ impl GuestSendStream for SendStreamRes {
             Err(FinishError::ClosedStream) => Err(Error::Closed),
         }
     }
+}
+
+impl GuestSendStream for SendStreamRes {
+    async fn write(&self, bytes: Vec<u8>) -> Result<(), Error> {
+        if self.streaming.get() {
+            return Err(other("the stream's writes were taken by write-via-stream"));
+        }
+        if self.writing.replace(true) {
+            return Err(other("a write is already in flight on this stream"));
+        }
+        let _claim = Unclaim(&self.writing);
+        write_all(&self.shared, self.handle, self.id, bytes).await
+    }
+
+    fn finish(&self) -> Result<(), Error> {
+        if self.streaming.get() {
+            return Err(other("the stream's writes were taken by write-via-stream"));
+        }
+        if self.writing.get() {
+            // A FIN under an in-flight write would truncate it.
+            return Err(other("a write is in flight on this stream"));
+        }
+        self.do_finish()
+    }
 
     fn reset(&self, code: u64) {
+        self.ended.set(true);
         let mut st = self.shared.borrow_mut();
         let entry = st.conns.get_mut(&self.handle).expect("connection entry");
         let _ = entry.conn.send_stream(self.id).reset(app_code(code));
@@ -1785,6 +1947,15 @@ impl GuestSendStream for SendStreamRes {
     }
 
     async fn write_via_stream(&self, mut data: StreamReader<u8>) -> Result<(), Error> {
+        if self.streaming.get() {
+            return Err(other("write-via-stream may be called once"));
+        }
+        if self.writing.replace(true) {
+            // Refused without claiming: the call had no effect.
+            return Err(other("a write is already in flight on this stream"));
+        }
+        let _claim = Unclaim(&self.writing);
+        self.streaming.set(true);
         loop {
             let (result, buf) = data.read(Vec::with_capacity(16 * 1024)).await;
             if !buf.is_empty() {
@@ -1795,7 +1966,7 @@ impl GuestSendStream for SendStreamRes {
                 wit_bindgen::StreamResult::Dropped | wit_bindgen::StreamResult::Cancelled => break,
             }
         }
-        self.finish()
+        self.do_finish()
     }
 }
 
@@ -1810,6 +1981,10 @@ impl GuestRecvStream for RecvStreamRes {
         if max == 0 {
             return Ok(Some(Vec::new()));
         }
+        if self.reading.replace(true) {
+            return Err(other("a read is already in flight on this stream"));
+        }
+        let _claim = Unclaim(&self.reading);
         match read_some(&self.shared, self.handle, self.id, max).await {
             Ok(Some(bytes)) => Ok(Some(bytes)),
             Ok(None) => {
