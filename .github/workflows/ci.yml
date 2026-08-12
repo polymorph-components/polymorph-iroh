@@ -17,6 +17,18 @@ jobs:
     # QUIC/WebRTC handshakes can hang; cap the job so a stuck run fails
     # fast instead of waiting for the default 6h limit.
     timeout-minutes: 45
+    # Compile caching is split by mechanism. sccache caches every rustc
+    # invocation content-addressed in the Actions cache service — immune
+    # to the fresh-checkout mtimes that make the workspace's own crates,
+    # the .deps sibling path-deps, and the iroh-relay workspace rebuild
+    # under any target-dir cache. rust-cache (below) is narrowed to the
+    # cargo registry, which sccache does not cover. Links are not
+    # cached; the host profile keeps them thin. Incremental artifacts
+    # are uncacheable by sccache and useless on throwaway runners.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -31,6 +43,14 @@ jobs:
         with:
           deno-version: "2.9.5"
 
+      - name: Install sccache
+        # Installed before any step that could invoke cargo: the
+        # job-level RUSTC_WRAPPER makes a missing binary a hard error,
+        # never a silent cache miss.
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: "v0.17.0"
+
       - name: Install dependencies
         # Before the cargo cache step: the cache keys on the workspaces'
         # lockfiles, and the .deps/iroh checkout must exist to be keyed.
@@ -41,23 +61,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Cache cargo
+      - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          # Compiled artifacts ride sccache; caching target dirs on top
+          # would store multi-gigabyte entries the 10 GiB repo quota
+          # cannot afford, for artifacts sccache reconstructs anyway.
+          cache-targets: false
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
           # them back to whatever versions main's cache holds. Excluding
           # bin/ also changes the cache path set, so entries saved with
           # bin/ included no longer match.
           cache-bin: false
-          # The upstream iroh-relay builds into its own checkout's target.
+          # The upstream iroh-relay checkout is a second workspace; its
+          # lockfile keys this cache too.
           workspaces: |
             . -> target
             .deps/iroh -> target
           # Save only on main: PR jobs restore but never save, so PR
           # branches don't churn the cache entries every run depends on.
+          # (sccache has no such asymmetry: PR runs write branch-scoped
+          # entries and hit them on their own reruns.)
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run the gate
         run: just gha::checks
+
+      - name: sccache stats
+        # Hit/miss/size, the measurement the caching claims rest on.
+        if: always()
+        run: sccache --show-stats
