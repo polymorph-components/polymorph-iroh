@@ -48,6 +48,9 @@ export type IrohError =
   | { kind: "closed" }
   | { kind: "reset"; value: bigint }
   | { kind: "connect-failed"; value: string }
+  | { kind: "timed-out"; value: string }
+  | { kind: "not-supported"; value: string }
+  | { kind: "in-use"; value: string }
   | { kind: "invalid-argument"; value: string }
   | { kind: "other"; value: string };
 

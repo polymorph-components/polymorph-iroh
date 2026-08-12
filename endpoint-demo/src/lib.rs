@@ -671,11 +671,11 @@ async fn stream_negative_client(
             return Err("s6: the oversized write completed against an unread stream".into());
         }
         match send.write(b"x".to_vec()).await {
-            Err(Error::Other(msg)) if msg.contains("in flight") => {}
+            Err(Error::InUse(_)) => {}
             other => return Err(format!("s6: concurrent write not refused: {other:?}")),
         }
         match send.finish() {
-            Err(Error::Other(msg)) if msg.contains("in flight") => {}
+            Err(Error::InUse(_)) => {}
             other => return Err(format!("s6: finish under a write not refused: {other:?}")),
         }
         // Dropping the parked future cancels the write: a prefix is
@@ -696,7 +696,7 @@ async fn stream_negative_client(
             return Err("s7: the read did not park on a silent stream".into());
         }
         match recv.read(READ_MAX).await {
-            Err(Error::Other(msg)) if msg.contains("in flight") => {}
+            Err(Error::InUse(_)) => {}
             other => return Err(format!("s7: concurrent read not refused: {other:?}")),
         }
         // Dropping the parked future cancels the read and releases
@@ -724,9 +724,7 @@ async fn stream_negative_client(
     // The cancelled S7 read released its guard: a later read runs and
     // reports the connection's failure, not a refusal.
     match recv.read(READ_MAX).await {
-        Err(Error::Other(msg)) if msg.contains("in flight") => {
-            return Err("s7: the cancelled read left its guard claimed".into())
-        }
+        Err(Error::InUse(_)) => return Err("s7: the cancelled read left its guard claimed".into()),
         Err(_) => {}
         other => return Err(format!("s7: post-close read got {other:?}")),
     }

@@ -214,11 +214,11 @@ run_pair "interop-udp-theirs-client" \
 # exist (the connect must time out, not hang). The wrong-key TLS pin
 # rejection itself is asserted by component-tls's rpk handshake tests.
 
-# Start a server, run a client expected to FAIL, assert it fails with a
-# connect-shaped error; the server never completes and is killed.
-#   run_client_failure <name> <with-server 0|1> <client-cmd...>
+# Start a server, run a client expected to FAIL, assert it fails with
+# the named error case; the server never completes and is killed.
+#   run_client_failure <name> <with-server 0|1> <error-pattern> <client-cmd...>
 run_client_failure() {
-    local name=$1 with_server=$2; shift 2
+    local name=$1 with_server=$2 pattern=$3; shift 3
     local server_pid="" server_id="0000000000000000000000000000000000000000000000000000000000000000"
     if [ "$with_server" = 1 ]; then
         timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
@@ -236,20 +236,20 @@ run_client_failure() {
     [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null
 
     if [ "$client_status" != 0 ] && [ "$client_status" != 124 ] \
-        && grep -qi "connect" "$LOGDIR/$name-client.log" \
+        && grep -q "$pattern" "$LOGDIR/$name-client.log" \
         && ! grep -q "^OK:" "$LOGDIR/$name-client.log"; then
         echo "PASS $name"
     else
-        echo "FAIL $name (client=$client_status, expected a bounded connect failure; logs in $LOGDIR)"
+        echo "FAIL $name (client=$client_status, expected a bounded $pattern failure; logs in $LOGDIR)"
         FAILURES=$((FAILURES + 1))
     fi
 }
 
-run_client_failure "endpoint-negative-wrong-alpn" 1 \
+run_client_failure "endpoint-negative-wrong-alpn" 1 "ConnectFailed" \
     timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --alpn "iroh-demo-negative/0" --peer
 
-run_client_failure "endpoint-negative-absent-peer" 0 \
+run_client_failure "endpoint-negative-absent-peer" 0 "TimedOut" \
     timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --peer
 

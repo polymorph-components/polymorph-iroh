@@ -709,6 +709,7 @@ fn on_event(
                     Error::Closed
                 }
                 ConnectionError::LocallyClosed => Error::Closed,
+                ConnectionError::TimedOut => Error::TimedOut("the connection timed out".into()),
                 other => Error::Other(format!("connection lost: {other}")),
             });
         }
@@ -1048,6 +1049,10 @@ fn other(detail: impl std::fmt::Display) -> Error {
     Error::Other(detail.to_string())
 }
 
+fn in_use(detail: impl std::fmt::Display) -> Error {
+    Error::InUse(detail.to_string())
+}
+
 /// A synthetic socket address under the IPv6 documentation prefix
 /// (RFC 3849, `2001:db8::/32`): `2001:db8:<space>::<hi>:<lo>`, port
 /// 4433. Documentation addresses are never routable, so standins
@@ -1341,7 +1346,7 @@ impl EndpointRes {
                 return Some(Err(Error::Closed));
             }
             if started.elapsed() > Duration::from_secs(30) {
-                return Some(Err(Error::ConnectFailed("relay open timed out".into())));
+                return Some(Err(Error::TimedOut("relay open timed out".into())));
             }
             None
         })
@@ -1447,9 +1452,7 @@ impl GuestEndpoint for EndpointRes {
         );
 
         let udp = match &udp_bind_addr {
-            Some(bind_addr) => Some(Rc::new(
-                UdpWire::bind(bind_addr).map_err(Error::InvalidArgument)?,
-            )),
+            Some(bind_addr) => Some(Rc::new(UdpWire::bind(bind_addr)?)),
             None => None,
         };
 
@@ -1578,11 +1581,13 @@ impl GuestEndpoint for EndpointRes {
             let entry = st.conns.get_mut(&handle).expect("connection entry");
             if let Some(err) = &entry.error {
                 // A dial that dies before connecting failed to
-                // connect, whatever the mechanism — the peer's refusal
-                // and a handshake timeout both arrive as transport
-                // closes. Local endpoint closure stays `closed`.
+                // connect: the peer's refusal arrives as a transport
+                // close and folds into `connect-failed`. Timeouts keep
+                // their own case; local endpoint closure stays
+                // `closed`.
                 return Some(Err(match err.clone() {
                     Error::Closed => Error::Closed,
+                    Error::TimedOut(msg) => Error::TimedOut(msg),
                     Error::Other(msg) => Error::ConnectFailed(msg),
                     other => other,
                 }));
@@ -1999,10 +2004,10 @@ impl SendStreamRes {
 impl GuestSendStream for SendStreamRes {
     async fn write(&self, bytes: Vec<u8>) -> Result<(), Error> {
         if self.streaming.get() {
-            return Err(other("the stream's writes were taken by write-via-stream"));
+            return Err(in_use("the stream's writes were taken by write-via-stream"));
         }
         if self.writing.replace(true) {
-            return Err(other("a write is already in flight on this stream"));
+            return Err(in_use("a write is already in flight on this stream"));
         }
         let _claim = Unclaim(&self.writing);
         write_all(&self.shared, self.handle, self.id, bytes).await
@@ -2010,11 +2015,11 @@ impl GuestSendStream for SendStreamRes {
 
     fn finish(&self) -> Result<(), Error> {
         if self.streaming.get() {
-            return Err(other("the stream's writes were taken by write-via-stream"));
+            return Err(in_use("the stream's writes were taken by write-via-stream"));
         }
         if self.writing.get() {
             // A FIN under an in-flight write would truncate it.
-            return Err(other("a write is in flight on this stream"));
+            return Err(in_use("a write is in flight on this stream"));
         }
         self.do_finish()
     }
@@ -2030,11 +2035,11 @@ impl GuestSendStream for SendStreamRes {
 
     async fn write_via_stream(&self, mut data: StreamReader<u8>) -> Result<(), Error> {
         if self.streaming.get() {
-            return Err(other("write-via-stream may be called once"));
+            return Err(in_use("write-via-stream may be called once"));
         }
         if self.writing.replace(true) {
             // Refused without claiming: the call had no effect.
-            return Err(other("a write is already in flight on this stream"));
+            return Err(in_use("a write is already in flight on this stream"));
         }
         let _claim = Unclaim(&self.writing);
         self.streaming.set(true);
@@ -2055,7 +2060,7 @@ impl GuestSendStream for SendStreamRes {
 impl GuestRecvStream for RecvStreamRes {
     async fn read(&self, max: u32) -> Result<Option<Vec<u8>>, Error> {
         if self.streaming.get() {
-            return Err(other("the stream's bytes were taken by read-via-stream"));
+            return Err(in_use("the stream's bytes were taken by read-via-stream"));
         }
         if let Some(terminal) = self.terminal.borrow().clone() {
             return terminal.map(|()| None);
@@ -2064,7 +2069,7 @@ impl GuestRecvStream for RecvStreamRes {
             return Ok(Some(Vec::new()));
         }
         if self.reading.replace(true) {
-            return Err(other("a read is already in flight on this stream"));
+            return Err(in_use("a read is already in flight on this stream"));
         }
         let _claim = Unclaim(&self.reading);
         match read_some(&self.shared, self.handle, self.id, max).await {
@@ -2092,7 +2097,7 @@ impl GuestRecvStream for RecvStreamRes {
         &self,
     ) -> Result<(StreamReader<u8>, FutureReader<Result<(), Error>>), Error> {
         if self.streaming.replace(true) {
-            return Err(other("read-via-stream may be called once"));
+            return Err(in_use("read-via-stream may be called once"));
         }
         let (mut writer, reader) = wit_stream::new();
         // The default never surfaces: every pump path below writes an

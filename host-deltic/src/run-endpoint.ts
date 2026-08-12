@@ -419,6 +419,39 @@ async function main(): Promise<number> {
         `zero wasi:sockets calls (browser profile) — log: [${udpCallLog().join(", ")}]`,
       );
       await deadline(ep.close(), 10_000, "close() after bind");
+
+      // The deployment-profile latitude (wit/iroh.wit, udp-bind-addr):
+      // this host has no UDP, so a bind that asks for the direct path
+      // must fail not-supported — the stub's honest error-code carried
+      // through. Probed after the zero-calls check above: this call is
+      // MEANT to reach the stub.
+      let unsupported = "no error";
+      try {
+        await deadline(
+          bindEndpoint(inst, {
+            alpns: [ALPN],
+            relayUrl: relay.url,
+            udpBindAddr: "127.0.0.1:0",
+            webrtc: false,
+          }),
+          30_000,
+          "bind with udp-bind-addr",
+        );
+        unsupported = "bind succeeded";
+      } catch (err) {
+        if (err instanceof ComponentException) {
+          const p = err.payload as { kind?: string } | undefined;
+          unsupported = p?.kind ?? "unknown";
+        } else {
+          unsupported = describeError(err);
+        }
+      }
+      check(
+        v,
+        unsupported === "not-supported",
+        `udp-bind-addr on the browser profile fails not-supported: ${unsupported}`,
+      );
+
       await settle();
       check(v, takeGuestPanics().length === 0, "no guest trap during bind/identity");
       v.detail = `bind ${bindMs.toFixed(0)} ms, id ${shortId(id)}, 3 post-pump export calls`;
