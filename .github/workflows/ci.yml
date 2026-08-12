@@ -45,6 +45,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          # The action keys on workspace-MEMBER manifests and lockfiles;
+          # the virtual workspace ROOT manifests are never read. But the
+          # root is where cargo requires [profile.*] to live (and where
+          # [workspace.dependencies] feature changes hide without moving
+          # Cargo.lock) — so a root-only change keeps the old key, the
+          # run full-matches the stale entry, and the save is skipped as
+          # "up-to-date", discarding everything the change forced it to
+          # build, on every run (how #63's target/host tree recompiled
+          # cold each time). Hash the roots into the key ourselves.
+          key: root-manifests-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml') }}
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
           # them back to whatever versions main's cache holds. Excluding
