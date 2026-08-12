@@ -1,5 +1,5 @@
 {
-  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof WitError` holds across every boundary. This is the ONE deno config for all three experiments (iroh-relay-ws, iroh-blobs, ping-demo): the others pass --config pointing here. deltic arrives as exactly-pinned JSR prereleases (0.1.0-pre.g<shorthash> names one upstream commit; @deltic/translator ships the translator wasm for the SAME commit); the version matches host-deltic/deno.json by repo convention (exam-deltic asserts it; see host-deltic/README.md, 'The pin'). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @deltic prereleases resolve. The npm mappings serve the webrtc module's bare specifiers under Deno; a browser build resolves the RTCPeerConnection global instead. compilerOptions.lib carries dom next to deno.ns so the browser entries (browser-entry.ts, ping-demo's demo.ts/overlay.ts) type-check in the same graph as the Deno drivers.",
+  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof ComponentException` holds across every boundary. This is the ONE deno config for all three experiments (iroh-relay-ws, iroh-blobs, ping-demo): the others pass --config pointing here. deltic arrives as exactly-pinned JSR prereleases (0.1.0-pre.g<shorthash> names one upstream commit; @deltic/translator ships the translator wasm for the SAME commit); the version matches host-deltic/deno.json by repo convention (exam-deltic asserts it; see host-deltic/README.md, 'The pin'). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @deltic prereleases resolve. The npm mappings serve the webrtc module's bare specifiers under Deno; a browser build resolves the RTCPeerConnection global instead. compilerOptions.lib carries dom next to deno.ns so the browser entries (browser-entry.ts, ping-demo's demo.ts/overlay.ts) type-check in the same graph as the Deno drivers.",
   "nodeModulesDir": "auto",
   "minimumDependencyAge": {
     "age": "P1D",
@@ -9,10 +9,10 @@
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
   },
   "imports": {
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.ga67ee83/embedder",
-    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0-pre.ga67ee83/shim",
-    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.ga67ee83",
-    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.ga67ee83",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/embedder",
+    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/shim",
+    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.g078aa15",
+    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.g078aa15",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "werift": "npm:werift@0.22.2"

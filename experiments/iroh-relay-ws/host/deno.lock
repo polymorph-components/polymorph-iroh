@@ -1,28 +1,36 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@deltic/runtime@0.1.0-pre.ga67ee83": "0.1.0-pre.ga67ee83",
-    "jsr:@deltic/runtime@~0.1.0-pre.ga67ee83": "0.1.0-pre.ga67ee83",
-    "jsr:@deltic/translator@0.1.0-pre.ga67ee83": "0.1.0-pre.ga67ee83",
-    "jsr:@deltic/wasi-shims@0.1.0-pre.ga67ee83": "0.1.0-pre.ga67ee83",
+    "jsr:@deltic/protocol@0.2": "0.2.0",
+    "jsr:@deltic/runtime@0.1.0-pre.g078aa15": "0.1.0-pre.g078aa15",
+    "jsr:@deltic/runtime@~0.1.0-pre.g078aa15": "0.1.0-pre.g078aa15",
+    "jsr:@deltic/translator@0.1.0-pre.g078aa15": "0.1.0-pre.g078aa15",
+    "jsr:@deltic/wasi-shims@0.1.0-pre.g078aa15": "0.1.0-pre.g078aa15",
     "npm:node-datachannel@0.32.3": "0.32.3",
     "npm:playwright@^1.62.1": "1.62.1",
     "npm:werift@0.22.2": "0.22.2"
   },
   "jsr": {
-    "@deltic/runtime@0.1.0-pre.ga67ee83": {
-      "integrity": "2a2b0949031747a2340dc186299e654ea9f361ae39ac6bd633019940682db4ed"
+    "@deltic/protocol@0.2.0": {
+      "integrity": "028be6a3623c5e910598aa7a199209b85e8931ae484ac7f6638d610ddb0e19fa"
     },
-    "@deltic/translator@0.1.0-pre.ga67ee83": {
-      "integrity": "e4f1bb219e56b62262b0c9665e3f6646aa13883b2cfbb9d6306f69d19974d412",
+    "@deltic/runtime@0.1.0-pre.g078aa15": {
+      "integrity": "5e64f8dc6d32190ecd394d6ad9881eb0fa97b6598b1e7f2ef1d52cff4674287c",
       "dependencies": [
-        "jsr:@deltic/runtime@~0.1.0-pre.ga67ee83"
+        "jsr:@deltic/protocol"
       ]
     },
-    "@deltic/wasi-shims@0.1.0-pre.ga67ee83": {
-      "integrity": "a5754e65d50873e675695a51279989e22b3771e31f16a84a09feb15905c574a7",
+    "@deltic/translator@0.1.0-pre.g078aa15": {
+      "integrity": "7125f99ac46af4a69f1c432def2b7ea4be63509c3a7ebae83537357615ec33ef",
       "dependencies": [
-        "jsr:@deltic/runtime@~0.1.0-pre.ga67ee83"
+        "jsr:@deltic/runtime@~0.1.0-pre.g078aa15"
+      ]
+    },
+    "@deltic/wasi-shims@0.1.0-pre.g078aa15": {
+      "integrity": "fba2081f804eaaccf95e31cdd634fd85a2d724f6be7f62578ddc26aef03524a1",
+      "dependencies": [
+        "jsr:@deltic/protocol",
+        "jsr:@deltic/runtime@~0.1.0-pre.g078aa15"
       ]
     }
   },
@@ -613,9 +621,9 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@deltic/runtime@0.1.0-pre.ga67ee83",
-      "jsr:@deltic/translator@0.1.0-pre.ga67ee83",
-      "jsr:@deltic/wasi-shims@0.1.0-pre.ga67ee83",
+      "jsr:@deltic/runtime@0.1.0-pre.g078aa15",
+      "jsr:@deltic/translator@0.1.0-pre.g078aa15",
+      "jsr:@deltic/wasi-shims@0.1.0-pre.g078aa15",
       "npm:node-datachannel@0.32.3",
       "npm:werift@0.22.2"
     ],

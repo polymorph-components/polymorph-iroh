@@ -83,7 +83,7 @@ function setStatus(state: string, text: string): void {
 let guestSocket: any = null;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const GUEST_FROM = { tag: "ipv4" as const, val: { port: 3, address: [127, 0, 0, 1] as [number, number, number, number] } };
+const GUEST_FROM = { kind: "ipv4" as const, value: { port: 3, address: [127, 0, 0, 1] as [number, number, number, number] } };
 
 function sendToGuest(obj: unknown): void {
   if (!guestSocket) return;

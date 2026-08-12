@@ -9,12 +9,12 @@
 // MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling host
 // modules import `@deltic/runtime/embedder` by bare specifier internally;
 // this package's `deno.json` maps that specifier ONCE for the whole module
-// graph, so there is exactly one `WitError`/`Stream` module instance and
-// `instanceof` holds across every boundary.
+// graph, so there is exactly one `ComponentException`/`Stream` module
+// instance and `instanceof` holds across every boundary.
 
 import { defaultTranslator } from "@deltic/translator";
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";
-import { instantiate, WitError } from "@deltic/runtime/embedder";
+import { instantiate, ComponentException } from "@deltic/runtime/embedder";
 import { wasiShims } from "@deltic/wasi-shims";
 import { webcryptoImports } from "@polymorph/webcrypto-deltic";
 import { websocketImports } from "../../.deps/websocket/js/deltic/websocket.ts";
@@ -263,9 +263,9 @@ export function deadline<T>(promise: Promise<T>, ms: number, what: string): Prom
 
 /** Render a rejection, unwrapping the branded WIT error payload. */
 export function describeError(err: unknown): string {
-  if (err instanceof WitError) {
-    const p = err.payload as { tag?: string; val?: unknown } | undefined;
-    return `WitError ${p?.tag ?? "?"}${p?.val === undefined ? "" : `(${String(p.val)})`}`;
+  if (err instanceof ComponentException) {
+    const p = err.payload as { kind?: string; value?: unknown } | undefined;
+    return `ComponentException ${p?.kind ?? "?"}${p?.value === undefined ? "" : `(${String(p.value)})`}`;
   }
   return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }

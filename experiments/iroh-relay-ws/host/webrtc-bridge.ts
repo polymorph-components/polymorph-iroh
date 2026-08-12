@@ -41,8 +41,8 @@ import {
 import { describeErr } from "./errors.ts";
 
 const WEBRTC_FROM: IpSocketAddress = {
-  tag: "ipv4",
-  val: { port: 2, address: [127, 0, 0, 1] },
+  kind: "ipv4",
+  value: { port: 2, address: [127, 0, 0, 1] },
 };
 const TAG_REGISTER = 0x00;
 const TAG_ASSIGNED = 0x01;
@@ -89,7 +89,7 @@ const t0 = Date.now();
 const ts = (): string => `t+${Date.now() - t0}ms`;
 
 function synFrom(peer: Peer): IpSocketAddress {
-  return { tag: "ipv4", val: { port: SYN_PORT, address: peer.synAddr } };
+  return { kind: "ipv4", value: { port: SYN_PORT, address: peer.synAddr } };
 }
 
 /** Forward one raw datagram from `srcHex` toward `dstHex`, buffering while
@@ -143,7 +143,7 @@ registerBridge(2, (socket: UdpSocket, { data }: OutgoingDatagram) => {
   registerAddrRoute(peer.synAddr, SYN_PORT, (senderSocket, d) => {
     let srcHex = senderSocket.overlayOwner;
     if (!srcHex) {
-      const port = senderSocket.localAddress().val.port;
+      const port = senderSocket.localAddress().value.port;
       for (const [otherHex, other] of peers) {
         if (other.udpPort === port) {
           srcHex = senderSocket.overlayOwner = otherHex;
@@ -218,7 +218,7 @@ function pumpChannel(channel: DataChannel, ownerHex: string, remoteHex: string):
         return;
       }
       webrtcStats.in++;
-      const bytes = message.tag === "binary" ? message.val : new TextEncoder().encode(message.val);
+      const bytes = message.kind === "binary" ? message.value : new TextEncoder().encode(message.value);
       const owner = peers.get(ownerHex);
       const remote = peers.get(remoteHex);
       if (!owner || !remote) continue;
@@ -269,7 +269,7 @@ async function establish(key: string, link: Link, a: string, b: string): Promise
     link.send = (fromHex, bytes) => {
       const channel = chans[fromHex];
       sendChains[fromHex] = sendChains[fromHex]
-        .then(() => channel.send({ tag: "binary", val: bytes }))
+        .then(() => channel.send({ kind: "binary", value: bytes }))
         .catch((err) => console.error(`[webrtc-bridge] send failed: ${describeErr(err)}`));
     };
     link.state = "open";

@@ -9,7 +9,7 @@
 // deltic's wasi-shims and this package import `@deltic/runtime/embedder`
 // by bare specifier; the `deno.json` next to this file maps that
 // specifier once for the whole module graph, so there is exactly one
-// `WitError` module instance and `instanceof` holds across every
+// `ComponentException` module instance and `instanceof` holds across every
 // boundary — including the branded errors sockets.ts throws.
 
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";

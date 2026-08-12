@@ -89,10 +89,10 @@ module under its own package-shaped `deno.json` (name + exports)
 resolves its bare specifiers against THAT config — before the `.deps`
 pins converged on JSR-consuming sibling revisions, the webcrypto module
 silently rode a raw pinned-tag embedder while everything else used the
-JSR one, and `instanceof WitError` did not hold across its boundary.
+JSR one, and `instanceof ComponentException` did not hold across its boundary.
 Identity therefore rests on every config in the graph — this one and
 each pinned sibling's — naming the SAME `jsr:@deltic/*` version, so the
-resolver dedupes to one `WitError`/`Stream` module instance. Two gates
+resolver dedupes to one `ComponentException`/`Stream` module instance. Two gates
 in `just exam-deltic` keep it true: the pin grep (this repo's configs
 agree) and `scripts/deltic-identity-gate.ts` (the RESOLVED run-endpoint
 graph carries exactly one `@deltic/runtime` and no raw URLs). Bumping a

@@ -61,7 +61,7 @@ async function open(socket: UdpSocket, url: string, protocols: string[]): Promis
         return;
       }
       bridgeStats.wsIn++;
-      const bytes = message.tag === "binary" ? message.val : enc.encode(message.val);
+      const bytes = message.kind === "binary" ? message.value : enc.encode(message.value);
       pushDatagram(socket, frame(TAG_MESSAGE, bytes));
     }
   } catch (err) {
@@ -93,7 +93,7 @@ registerBridge(1, (socket: UdpSocket, { data }: OutgoingDatagram) => {
       // `slice` detaches from any shared buffer; chain preserves ordering.
       const bytes = payload.slice();
       conn.sendChain = conn.sendChain
-        .then(() => conn.ws.send({ tag: "binary", val: bytes }))
+        .then(() => conn.ws.send({ kind: "binary", value: bytes }))
         .catch((err) => {
           console.error(`[bridge] ws send failed: ${describeErr(err)}`);
           pushDatagram(socket, new Uint8Array([TAG_CLOSED]));
