@@ -10,5 +10,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wit-bindgen = { version = "0.59", features = ["async"] }
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
 hex = "0.4"
 polymorph-webcrypto-guest = { path = "../.deps/webcrypto/rust/guest" }

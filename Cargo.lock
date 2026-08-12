@@ -2604,6 +2604,7 @@ dependencies = [
 name = "iroh-endpoint-demo"
 version = "0.0.1"
 dependencies = [
+ "futures",
  "hex",
  "polymorph-webcrypto-guest",
  "wit-bindgen 0.59.0",
