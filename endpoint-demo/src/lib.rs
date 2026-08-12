@@ -168,15 +168,26 @@ async fn run_client(endpoint: &Endpoint, config: &RunConfig) -> Result<RunReport
     let handshake_ms = started.elapsed().as_millis() as u64;
 
     // The upgrade runs in the background; this demo exists to exercise
-    // the wire it asked for, so wait for the flip before sending.
+    // the wire it asked for, so follow the path watch to the flip,
+    // bounded.
     if config.webrtc {
-        let mut polls = 0;
-        while conn.path() != PathKind::Webrtc {
-            polls += 1;
-            if polls > DEADLINE_POLLS {
-                return Err("webrtc upgrade did not complete".into());
+        let mut changes = conn.path_changes();
+        let watch = async move {
+            loop {
+                let (result, kinds) = changes.read(Vec::with_capacity(4)).await;
+                if kinds.contains(&PathKind::Webrtc) {
+                    return Ok(());
+                }
+                if !matches!(result, wit_bindgen::StreamResult::Complete(_)) {
+                    return Err("the path watch ended before the upgrade".to_string());
+                }
             }
-            monotonic_clock::wait_for(POLL_NS).await;
+        };
+        let mut watch = pin!(watch.fuse());
+        let mut deadline = pin!(monotonic_clock::wait_for(30_000_000_000).fuse());
+        futures::select_biased! {
+            r = watch => r?,
+            _ = deadline => return Err("webrtc upgrade did not complete".into()),
         }
     }
 

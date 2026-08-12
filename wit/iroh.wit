@@ -312,8 +312,21 @@ interface endpoint {
         /// The wire currently carrying this connection's packets. Not
         /// latched: a background upgrade moves a relay-dialed
         /// connection to `webrtc` when its channel opens, and back to
-        /// `relay` if the channel dies (see `endpoint.connect`).
+        /// `relay` if the channel dies (see `endpoint.connect`). To
+        /// follow the moves rather than poll, use `path-changes`.
         path: func() -> path-kind;
+
+        /// A stream of path changes, behaving as a coalescing watch:
+        /// each element was the connection's path when it was
+        /// produced. Consecutive elements are always distinct;
+        /// intermediate paths may be coalesced away, never invented.
+        /// The stream ends when the connection closes — the lifecycle
+        /// itself lives on `wait-closed`.
+        ///
+        /// The stream may be taken once: the first call returns it,
+        /// and every later call returns a stream that ends immediately
+        /// without yielding anything.
+        path-changes: func() -> stream<path-kind>;
 
         /// Open a bidirectional stream. Resolves when stream credit is
         /// available. Cancelling a pending open opens nothing.
