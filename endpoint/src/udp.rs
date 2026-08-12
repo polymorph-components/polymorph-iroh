@@ -3,6 +3,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
+use crate::bindings::polymorph::iroh::types::Error;
 use crate::bindings::wasi::sockets::types::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress, UdpSocket,
 };
@@ -13,25 +14,37 @@ pub struct UdpWire {
     local: SocketAddr,
 }
 
+/// A socket failure at bind time: `error-code.not-supported` is the
+/// host's honest no-UDP answer (the browser profile) and surfaces as
+/// `error.not-supported`; anything else rejects the arguments.
+fn bind_error(what: &str, code: ErrorCode) -> Error {
+    match code {
+        ErrorCode::NotSupported => {
+            Error::NotSupported("this deployment provides no UDP socket".into())
+        }
+        other => Error::InvalidArgument(format!("{what}: {other:?}")),
+    }
+}
+
 impl UdpWire {
     /// Create and bind a socket at `bind_addr` (`ip:port`; port 0 picks a
     /// free one).
-    pub fn bind(bind_addr: &str) -> Result<Self, String> {
+    pub fn bind(bind_addr: &str) -> Result<Self, Error> {
         let addr: SocketAddr = bind_addr
             .parse()
-            .map_err(|e| format!("udp bind address {bind_addr:?}: {e}"))?;
+            .map_err(|e| Error::InvalidArgument(format!("udp bind address {bind_addr:?}: {e}")))?;
         let family = match addr {
             SocketAddr::V4(_) => IpAddressFamily::Ipv4,
             SocketAddr::V6(_) => IpAddressFamily::Ipv6,
         };
-        let socket = UdpSocket::create(family).map_err(|e| format!("udp create: {e:?}"))?;
+        let socket = UdpSocket::create(family).map_err(|e| bind_error("udp create", e))?;
         socket
             .bind(to_wasi(addr))
-            .map_err(|e| format!("udp bind: {e:?}"))?;
+            .map_err(|e| bind_error("udp bind", e))?;
         let local = from_wasi(
             socket
                 .get_local_address()
-                .map_err(|e| format!("udp local address: {e:?}"))?,
+                .map_err(|e| bind_error("udp local address", e))?,
         );
         Ok(Self { socket, local })
     }

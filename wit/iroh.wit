@@ -114,9 +114,19 @@ interface types {
         /// reset code.
         reset(u64),
         /// Connection establishment failed: the relay was unreachable,
-        /// the handshake failed, the peer refused every offered ALPN,
-        /// or the attempt timed out.
+        /// the handshake failed, or the peer refused the connection or
+        /// every offered ALPN.
         connect-failed(string),
+        /// The attempt timed out: the peer, or the relay being opened,
+        /// did not answer within the deadline.
+        timed-out(string),
+        /// The deployment does not serve a capability the operation
+        /// needs: a transport this host does not provide.
+        not-supported(string),
+        /// The operation conflicts with another user of the stream
+        /// half: a `read` or `write` already in flight, or a
+        /// `read-via-stream`/`write-via-stream` claim.
+        in-use(string),
         /// A supplied argument is invalid: an `endpoint-id` that is not
         /// 32 bytes, or a malformed relay URL. The operation had no
         /// effect.
@@ -221,6 +231,9 @@ interface endpoint {
         /// direct peers can dial in. Unset binds no socket. A port of
         /// zero picks a free port; read the result with
         /// `endpoint.direct-addr`.
+        ///
+        /// Not every deployment provides UDP (the browser profile has
+        /// none): there, `bind` with this set fails `not-supported`.
         udp-bind-addr: func(addr: string);
 
         /// Enables the WebRTC wire: `webrtc` address entries become
@@ -228,6 +241,11 @@ interface endpoint {
         /// on its relay connections. When disabled (the default),
         /// `webrtc` entries are ignored for dialing and inbound
         /// signaling is discarded.
+        ///
+        /// A deployment that stubs the WebRTC import does not detect
+        /// that at `bind`: enabling this there leaves `webrtc` entries
+        /// non-functional — upgrades do not occur and connections stay
+        /// on their dial path.
         webrtc: func(enabled: bool);
     }
 
@@ -258,7 +276,7 @@ interface endpoint {
         /// The dial path: the first parseable `ip` entry when a UDP
         /// socket is bound, the relay otherwise. There is no fallback
         /// between dial paths: a chosen path that does not answer fails
-        /// `connect-failed` by timeout.
+        /// `timed-out`.
         ///
         /// A `webrtc` entry (with `endpoint-options.webrtc` set)
         /// upgrades a relay-dialed connection in the background: the
@@ -409,7 +427,7 @@ interface endpoint {
     /// The send half of a QUIC stream.
     ///
     /// One in-flight `write` (or `write-via-stream`) at a time: a
-    /// second concurrent call fails `error.other` immediately.
+    /// second concurrent call fails `error.in-use` immediately.
     /// Concurrent writes would interleave at flow-control boundaries —
     /// silent corruption for framed payloads — so the surface refuses
     /// them. Dropping the resource without `finish` or `reset` implies
@@ -426,7 +444,7 @@ interface endpoint {
         write: async func(bytes: list<u8>) -> result<_, error>;
 
         /// Finish the stream: a FIN after all accepted writes. No
-        /// writes may follow. Fails `error.other` while a `write` is
+        /// writes may follow. Fails `error.in-use` while a `write` is
         /// in flight — a FIN under it would truncate the payload.
         finish: func() -> result<_, error>;
 
@@ -438,7 +456,7 @@ interface endpoint {
 
         /// Send the whole remaining payload through a byte stream,
         /// then finish. One-shot: after it, `write` and `finish` fail
-        /// `error.other` (the claim is not taken when the call is
+        /// `error.in-use` (the claim is not taken when the call is
         /// refused for an in-flight `write`). Resolves when every byte
         /// has been accepted and the FIN sent.
         ///
@@ -456,7 +474,7 @@ interface endpoint {
     /// The receive half of a QUIC stream.
     ///
     /// One in-flight `read` at a time: a second concurrent call fails
-    /// `error.other` immediately (concurrent reads would split the
+    /// `error.in-use` immediately (concurrent reads would split the
     /// byte sequence between callers). Dropping the resource before
     /// the stream's end implies `stop(0)`; a stream whose end was
     /// consumed, or whose bytes a `read-via-stream` owns, needs
@@ -482,7 +500,7 @@ interface endpoint {
         /// Take the stream's remaining bytes as a byte stream, with a
         /// future reporting how the stream ended. May be called once:
         /// after it, any call to it or to `read` fails with
-        /// `error.other`.
+        /// `error.in-use`.
         ///
         /// The byte stream ends at the peer's FIN, at a reset, and at
         /// a connection close alike; the future tells them apart. It
