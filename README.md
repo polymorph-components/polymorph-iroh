@@ -136,16 +136,20 @@ scale.
   sockets.
 - **Non-extractable node identity** on platforms with key storage.
 
-## The spike: one QUIC connection over a data channel
+## The implementation
 
-The `spike/quic-over-datachannel` work carries the first code: a
-happy-path QUIC connection between two component instances, resolving the
-crypto-integration question (issue #5, Path A), recording a first
-transport profile (issue #1), and speaking iroh's relay wire protocol to
-an unmodified upstream relay (issue #2) — exercising both wires the
-design names, a WebRTC data channel and the relay connection itself.
+QUIC runs end to end between component instances on every wire the
+design names: a WebRTC data channel, an iroh relay connection, and
+direct UDP. The rulings this settled — the crypto split (issue #5,
+Path A), the transport profile (issue #1), and iroh's relay wire
+protocol against an unmodified upstream relay (issue #2) — are
+recorded below.
 
-- **One guest component** (`guest/`, `wasm32-wasip2`): `noq-proto`
+(A single-connection spike demo, `guest/` plus its own host driver,
+carried this code first and was retired once the endpoint component
+superseded it; the history is in the git log.)
+
+- **One guest component** (`endpoint/`, `wasm32-wasip2`): `noq-proto`
   with default features off over the `polymorph:tls` sibling's
   `polymorph-tls-quic` crypto layer, implementing the crypto split —
   key exchange, peer verification, the key schedule, and record/packet
@@ -178,45 +182,47 @@ design names, a WebRTC data channel and the relay connection itself.
   by the production relay), and a cross-relay dial against n0's public
   relay infrastructure over wss, unmodified. No component-iroh relay
   flavor is needed.
-- **Pairing is by endpoint ID**, iroh's model: the guest prints its ID at
+- **Pairing is by endpoint ID**, iroh's model: the demo prints its ID at
   startup, the client is handed the server's (`--peer`), and a server
   learns the client's from the relay-authenticated source of the first
   inbound frame. The handshake-authenticated TLS key must agree with the
   relay-authenticated source — there is no separate identity exchange.
-- **Two wires, one endpoint** (`--transport webrtc|relay`): QUIC runs
-  end-to-end either over an unreliable, unordered data channel
-  (`ordered=false`, `max-retransmits=0`, SDP/ICE signaling carried as
-  relay datagrams) or over the relay itself as raw QUIC packets in relay
-  datagram frames, with the relay never holding connection keys. One QUIC
-  datagram rides in one frame on either carrier; fixed 1200-byte initial
-  MTU with MTU discovery and GSO batching disabled.
-- **One host pairing per wire, plus upstream interop**: the Wasmtime
-  host (`host-wasmtime/`, the sibling host crates) exchanges one
-  authenticated echo each way on both wires, through the stock relay.
-  (The deltic JS host, `host-deltic/`, runs the endpoint surface —
-  see below — not this spike demo.)
+- **Three wires, one endpoint**: QUIC runs end-to-end over an
+  unreliable, unordered data channel (`ordered=false`,
+  `max-retransmits=0`, SDP/ICE signaling carried as relay datagrams),
+  over the relay itself as raw QUIC packets in relay datagram frames
+  (the relay never holds connection keys), or over direct UDP. One QUIC
+  datagram rides in one frame on either carrier; GSO batching is
+  disabled, and packet size starts at QUIC's 1200-byte floor and is
+  discovered per path up to a 4 KiB ceiling (issue #47) — the relay and
+  data-channel wires have no real MTU, so they converge on the ceiling
+  while a UDP path finds the true one.
+- **Every pairing exercised, plus upstream interop**: the Wasmtime
+  host (`host-wasmtime/`, the sibling host crates) runs authenticated
+  echoes on every wire through the stock relay, and the deltic JS host
+  (`host-deltic/`) runs the same surface on stock Deno.
 
-To run it: build the guest, hosts, and the upstream relay, then hand the
-server's printed endpoint ID to the client (`WEBRTC_INCLUDE_LOOPBACK=1`
-lets same-host peers pair on the WebRTC wire):
+To run it: build the components, hosts, and the upstream relay, then
+hand the server's printed endpoint ID to the client
+(`WEBRTC_INCLUDE_LOOPBACK=1` lets same-host peers pair on the WebRTC
+wire):
 
 ```sh
 ./scripts/setup.sh   # sibling + iroh checkouts under .deps, npm installs
-cargo build -p iroh-spike-guest --target wasm32-wasip2 --release
-cargo build -p iroh-spike-host-wasmtime --release
-(cd .deps/iroh && cargo build --release -p iroh-relay --features server --bin iroh-relay)
+just build           # components + host binaries
+just relay-build
 .deps/iroh/target/release/iroh-relay --dev &   # ws on 127.0.0.1:3340
-WEBRTC_INCLUDE_LOOPBACK=1 target/release/iroh-spike-host \
-  target/wasm32-wasip2/release/iroh_spike_guest.wasm \
-  --role server --server http://127.0.0.1:3340 &
+WEBRTC_INCLUDE_LOOPBACK=1 target/host/endpoint-demo \
+  target/components/iroh-demo.wasm \
+  --role server --relay http://127.0.0.1:3340 --webrtc &
 # scrape the server's `endpoint-id <hex>` line, then:
-WEBRTC_INCLUDE_LOOPBACK=1 target/release/iroh-spike-host \
-  target/wasm32-wasip2/release/iroh_spike_guest.wasm \
-  --role client --server http://127.0.0.1:3340 --peer <endpoint-id>
+WEBRTC_INCLUDE_LOOPBACK=1 target/host/endpoint-demo \
+  target/components/iroh-demo.wasm \
+  --role client --relay http://127.0.0.1:3340 --webrtc --peer <endpoint-id>
 ```
 
-Add `--transport relay` to both sides to run QUIC through the relay
-instead of a data channel.
+Drop `--webrtc` on both sides to keep QUIC on the relay wire, or add
+`--udp-bind`/`--direct` for the UDP path.
 
 ### The endpoint component
 
@@ -235,22 +241,21 @@ composed via `wac plug` and driven by
 task per bound endpoint owns all I/O, and wake-ups are event-driven in
 both directions — resource methods kick the pump to flush their
 mutations and park on wakers the pump fires (cross-task wakeups ride
-wit-bindgen's `inter-task-wakeup` channel, delivered by both hosts;
-the bench asserts the endpoint handshake stays within a fixed margin
-of the single-task spike's). The
-JS host for this surface is `host-deltic/`: it drives the endpoint
+wit-bindgen's `inter-task-wakeup` channel, delivered by both hosts).
+The JS host for this surface is `host-deltic/`: it drives the endpoint
 component runtime-linked under [deltic](https://github.com/lann/deltic)
 on stock Deno (no transpile step, no engine flag) — the jco host this
 repository ran previously blocked on an upstream jco scheduler defect
 (the detached-pump shape deltic's scheduler serves instead) and has
 retired. `just exam-deltic` runs
-its five-scenario endpoint exam — bind + identity, relay echo, the
-WebRTC upgrade, the issue #10 concurrency rows as passing assertions,
-and teardown.
+its seven-scenario endpoint exam — bind + identity (including the
+no-UDP profile's `not-supported`), relay echo, the WebRTC upgrade,
+the issue #10 concurrency rows as passing assertions, the stream
+terminal outcomes, idle survival, and teardown.
 
-`just matrix` runs every claimed pairing — the spike demo's wasmtime
-pairing on both wires plus the composed endpoint demo on every wire,
-cross-relay included — against stock `iroh-relay` servers; `just
+`just matrix` runs every claimed pairing — the composed endpoint demo
+on every wire, cross-relay and upstream interop included, plus the
+surface's negative probes — against stock `iroh-relay` servers; `just
 bench` gates the measured claims; `just exam-deltic` gates the
 deltic-hosted endpoint surface; `just ci` is the full gate. `just
 interop-prod` (manual, internet-dependent) checks the production

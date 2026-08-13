@@ -7,7 +7,7 @@
 //! endpoint-demo <composed.wasm> --role client --relay http://127.0.0.1:3340 --peer <endpoint-id>
 //! ```
 
-use iroh_spike_host_wasmtime::{engine, linker, store_with_network, Ctx};
+use iroh_host_wasmtime::{engine, linker, store_with_network, Ctx};
 use wasmtime::component::Accessor;
 use wasmtime::component::Component;
 use wasmtime::Result;

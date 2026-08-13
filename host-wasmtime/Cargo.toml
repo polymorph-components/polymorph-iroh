@@ -1,13 +1,10 @@
 [package]
-name = "iroh-spike-host-wasmtime"
+name = "iroh-host-wasmtime"
 version = "0.0.1"
 edition.workspace = true
 publish.workspace = true
-description = "Spike native host: runs the iroh-spike guest under Wasmtime"
+description = "Native hosts: run this repository's guest components under Wasmtime"
 
-[[bin]]
-name = "iroh-spike-host"
-path = "src/main.rs"
 
 [dependencies]
 # The `polymorph:webrtc-datachannels` host implementation (a real webrtc-rs peer

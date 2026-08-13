@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["core", "guest", "endpoint", "endpoint-demo", "host-wasmtime", "experiments/exec-model/guest", "tools/iroh-peer"]
+members = ["core", "endpoint", "endpoint-demo", "host-wasmtime", "experiments/exec-model/guest", "tools/iroh-peer"]
 # The native (host-target) crates: bare cargo commands cover exactly this
 # set. The wasm-only components build for their target through the
 # justfile recipes.
-default-members = ["core", "guest", "host-wasmtime"]
+default-members = ["core", "host-wasmtime"]
 # The sibling checkouts under .deps are their own workspaces; without the
 # exclusion cargo binds their workspace-inheriting members to this root.
 # experiments/udp-wake is likewise its own workspace: it needs no sibling
@@ -16,8 +16,8 @@ edition = "2021"
 publish = false
 
 # Sibling host/guest crates come from git worktrees under .deps (created by
-# scripts/setup.sh at pinned commits), so the spike consumes the siblings'
-# current mainline surfaces without forking them in-tree.
+# scripts/setup.sh at pinned commits), so this repository consumes the
+# siblings' current mainline surfaces without forking them in-tree.
 [profile.release]
 lto = true
 opt-level = "s"

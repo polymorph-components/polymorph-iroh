@@ -733,7 +733,7 @@ fn on_event(
 /// and the flush after every kick. The two long-lived import futures stay
 /// pinned across iterations and are resolved before the task returns (an
 /// in-flight import is a component-model subtask; jco traps on cancelling
-/// one — see the spike's teardown discipline). Channel receives live in a
+/// one — the teardown discipline). Channel receives live in a
 /// persistent set with the same discipline: closing every channel
 /// resolves them before the task returns.
 async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {

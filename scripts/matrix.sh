@@ -12,9 +12,7 @@ RELAY_URL="http://127.0.0.1:${RELAY_PORT}"
 # A second, independent relay for the cross-relay rows.
 RELAY_B_PORT=3342
 RELAY_B_URL="http://127.0.0.1:${RELAY_B_PORT}"
-SPIKE_WASM=target/wasm32-wasip2/release/iroh_spike_guest.wasm
 COMPOSED_WASM=target/components/iroh-demo.wasm
-HOST=target/host/iroh-spike-host
 EHOST=target/host/endpoint-demo
 IROH_PEER=target/host/iroh-peer
 LOGDIR=$(mktemp -d)
@@ -100,17 +98,6 @@ run_pair() {
     fi
 }
 
-
-# --- spike demo: both wires, wasmtime pairing ------------------------------
-
-for wire in webrtc relay; do
-    run_pair "spike-$wire-wasmtime-wasmtime" \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
-            --role server --server "$RELAY_URL" --transport "$wire" -- \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
-            --role client --server "$RELAY_URL" --transport "$wire" \
-            --message "matrix $wire" --peer
-done
 
 # --- endpoint surface: the wac-composed demo under wasmtime ---------------
 #
