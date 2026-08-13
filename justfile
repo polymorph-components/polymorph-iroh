@@ -19,9 +19,13 @@ build-components:
     mkdir -p target/components
     wac plug target/wasm32-wasip2/release/iroh_endpoint_demo.wasm --plug target/wasm32-wasip2/release/iroh_endpoint.wasm -o target/components/iroh-demo.wasm
 
-# Build the Wasmtime host binaries and the native interop peer.
+# Build the Wasmtime host binary the gates drive, and the native
+# interop peer. The exec-model probe driver is deliberately NOT here:
+# it carries its own bindgen world (~45% of this build) and only the
+# `probes` recipe needs it.
 build-hosts:
-    cargo build -p iroh-host-wasmtime -p iroh-peer --profile host
+    cargo build -p iroh-host-wasmtime --bin endpoint-demo --profile host
+    cargo build -p iroh-peer --profile host
 
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
@@ -47,9 +51,21 @@ validate-wit:
     wasm-tools component wit endpoint-demo/wit/ > /dev/null
     wasm-tools component wit experiments/exec-model/wit/ > /dev/null
 
-# The execution-model probes on the Wasmtime host.
-probes: build build-components
+# The execution-model probes on the Wasmtime host: the sync webcrypto
+# bridge inside a spawned task and inside a detached pump, exported
+# stream completion and reader-drop, and an imported stream sink.
+#
+# NOT part of `just ci`. Every behavior above is exercised by the
+# endpoint surface on both hosts in the ordinary gates — the crypto
+# bridge on every handshake, the stream paths by the stream-negative
+# probe's read-via-stream and write-via-stream legs — so these probes
+# now duplicate that coverage at the cost of a whole wasmtime
+# embedding for their own world. They stay runnable, and they are the
+# right first check when bumping wasmtime or wit-bindgen: they fail
+# with a named probe where the endpoint fails diagnostically vaguely.
+probes: build-components
     cargo build -p iroh-exec-model-guest --target wasm32-wasip2 --release
+    cargo build -p iroh-host-wasmtime --bin exec-model --profile host
     target/host/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.

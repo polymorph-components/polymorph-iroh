@@ -23,14 +23,17 @@ _step recipe:
         just {{recipe}}
     fi
 
-# The full gate: checks, probes, the cross-host pairing matrix, the
-# deltic endpoint exam, and the measured-claims bench.
+# The full gate: checks, the cross-host pairing matrix, the deltic
+# endpoint exam, and the measured-claims bench. The execution-model
+# probes are NOT here: what they assert about the host's async ABI is
+# now asserted by the endpoint surface itself on both hosts (see the
+# probes recipe), and their driver's own bindgen world was ~45% of the
+# host build. Run `just probes` when bumping wasmtime or wit-bindgen.
 checks:
     @just gha::_step fmt-check
     @just gha::_step clippy
     @just gha::_step validate-wit
     @just gha::_step test
-    @just gha::_step probes
     @just gha::_step matrix
     @just gha::_step exam-deltic
     @just gha::_step bench
