@@ -32,6 +32,7 @@ use bindings::polymorph::iroh::identity_from_keys::from_keys;
 use bindings::polymorph::iroh::identity_generate::generate;
 use bindings::polymorph::iroh::types::{CloseInfo, EndpointAddr, Error, PathKind, TransportAddr};
 use bindings::wasi::clocks::monotonic_clock;
+use bindings::wit_stream;
 use polymorph_webcrypto_guest::{ecdsa, ed25519, SigningKeyOptions};
 use wit_bindgen::rt::async_support::StreamReader;
 
@@ -479,6 +480,11 @@ const STREAM_WRITE_CANCEL_CODE: u64 = (1 << 39) + 7;
 const STREAM_CLOSE_CODE: u64 = (1 << 42) + 9;
 const STREAM_CLOSE_REASON: &str = "cut";
 
+/// The write-via-stream payload: large enough to span many stream
+/// chunks and cross flow-control boundaries, small enough to stay
+/// instant.
+const VIA_STREAM_BYTES: u32 = 64 * 1024;
+
 /// Sized past the peer's stream flow-control window, so an unread
 /// write parks deterministically (the exclusion and cancellation
 /// probes need an in-flight write).
@@ -494,6 +500,15 @@ async fn read_until_terminal(recv: &RecvStream) -> Result<(), Error> {
             Err(err) => return Err(err),
         }
     }
+}
+
+/// Read a stream to its FIN as text.
+async fn read_to_string(recv: &RecvStream) -> Result<String, String> {
+    let mut all = Vec::new();
+    while let Some(chunk) = recv.read(READ_MAX).await.map_err(fail("read"))? {
+        all.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&all).into_owned())
 }
 
 /// Collect a byte stream until it ends (however it ends: the paired
@@ -637,6 +652,29 @@ async fn stream_negative_client(
         }
     }
 
+    // S3b — write-via-stream: the payload crosses as a component-model
+    // stream (demo -> endpoint, composed) and arrives intact, FIN and
+    // all. The one WIT method with no other conformance coverage.
+    let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s3b"))?;
+    let payload: Vec<u8> = (0..VIA_STREAM_BYTES).map(|i| (i % 251) as u8).collect();
+    let (mut writer, reader) = wit_stream::new();
+    let feed = async move {
+        let remaining = writer.write_all(payload).await;
+        remaining.is_empty()
+        // Dropping the writer here ends the stream: the payload's end.
+    };
+    let (fed, sent) = futures::future::join(feed, send.write_via_stream(reader)).await;
+    if !fed {
+        return Err("s3b: the data stream was dropped before the payload ended".into());
+    }
+    sent.map_err(fail("write-via-stream s3b"))?;
+    let acked = read_to_string(&recv).await?;
+    if acked != VIA_STREAM_BYTES.to_string() {
+        return Err(format!(
+            "s3b: expected the server to ack {VIA_STREAM_BYTES} bytes, got {acked:?}"
+        ));
+    }
+
     // S4 — a dropped send half has its documented wire effect: the
     // server must read `reset(0)`, never a clean FIN.
     let (send, recv) = conn.open_bi().await.map_err(fail("open-bi s4"))?;
@@ -766,6 +804,25 @@ async fn stream_negative_server(endpoint: &Endpoint) -> Result<RunReport, String
         .await
         .map_err(fail("write s3"))?;
     send.reset(STREAM_VIA_RESET_CODE);
+
+    // S3b: the client's payload arrives through write-via-stream; read
+    // it whole and ack its length.
+    let (send, recv) = conn.accept_bi().await.map_err(fail("accept-bi s3b"))?;
+    let mut received = Vec::new();
+    while let Some(chunk) = recv.read(READ_MAX).await.map_err(fail("read s3b"))? {
+        received.extend_from_slice(&chunk);
+    }
+    let expected: Vec<u8> = (0..VIA_STREAM_BYTES).map(|i| (i % 251) as u8).collect();
+    if received != expected {
+        return Err(format!(
+            "s3b: the streamed payload arrived corrupt or short: {} of {VIA_STREAM_BYTES} bytes",
+            received.len()
+        ));
+    }
+    send.write(received.len().to_string().into_bytes())
+        .await
+        .map_err(fail("write s3b"))?;
+    send.finish().map_err(fail("finish s3b"))?;
 
     // S4: the client dropped its send half unfinished; the drop
     // contract delivers reset(0), never a clean FIN.
