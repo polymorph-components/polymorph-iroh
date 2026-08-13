@@ -14,8 +14,7 @@ RELAY_B_PORT=3342
 RELAY_B_URL="http://127.0.0.1:${RELAY_B_PORT}"
 SPIKE_WASM=target/wasm32-wasip2/release/iroh_spike_guest.wasm
 COMPOSED_WASM=target/components/iroh-demo.wasm
-HOST=target/host/iroh-spike-host
-EHOST=target/host/endpoint-demo
+IROH_HOSTS=target/host/iroh-hosts
 IROH_PEER=target/host/iroh-peer
 LOGDIR=$(mktemp -d)
 FAILURES=0
@@ -105,9 +104,9 @@ run_pair() {
 
 for wire in webrtc relay; do
     run_pair "spike-$wire-wasmtime-wasmtime" \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
+        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" spike "$SPIKE_WASM" \
             --role server --server "$RELAY_URL" --transport "$wire" -- \
-        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$HOST" "$SPIKE_WASM" \
+        env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" spike "$SPIKE_WASM" \
             --role client --server "$RELAY_URL" --transport "$wire" \
             --message "matrix $wire" --peer
 done
@@ -122,9 +121,9 @@ done
 # instead (see host-deltic/README.md); `just exam-deltic` is its gate.
 
 run_pair "endpoint-relay-wasmtime-wasmtime" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --datagram -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --datagram --datagram-ceiling 3900 --message "matrix endpoint" --peer
 
 # Embedder-injected identity: both sides mint an Ed25519 pair inside
@@ -136,9 +135,9 @@ run_pair "endpoint-relay-wasmtime-wasmtime" \
 # client additionally authenticated the server's injected identity end
 # to end).
 run_pair "endpoint-identity-wasmtime-wasmtime" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --inject-identity -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --inject-identity --message "matrix identity" --peer
 
 # The UDP direct path: the server binds a real socket (port 0 =
@@ -149,9 +148,9 @@ run_pair "endpoint-identity-wasmtime-wasmtime" \
 # fallback, so a passing echo is the assertion that QUIC flowed over
 # UDP.
 run_pair "endpoint-udp-wasmtime-wasmtime" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --datagram -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --datagram --message "matrix udp" --direct @DIRECT@ --peer
 
 # The WebRTC wire: SDP/ICE signaled through the relay (a 0x00-prefixed
@@ -163,9 +162,9 @@ run_pair "endpoint-udp-wasmtime-wasmtime" \
 # discovered MTU carries a datagram far over the 1200-byte floor; the
 # relay row above asserts the same of the relay path.
 run_pair "endpoint-webrtc-wasmtime-wasmtime" \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role server --relay "$RELAY_URL" --webrtc --datagram -- \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --datagram \
         --datagram-ceiling 3900 --message "matrix webrtc" --peer
 
@@ -173,17 +172,17 @@ run_pair "endpoint-webrtc-wasmtime-wasmtime" \
 # client's addr entries name relay B, so the dial opens a pooled
 # connection to the foreign relay and QUIC flows through it.
 run_pair "endpoint-relay-cross-wasmtime-wasmtime" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_B_URL" -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_B_URL" -- \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --peer-relay "$RELAY_B_URL" --message "matrix cross-relay" --peer
 
 # Cross-relay WebRTC: signaling crosses to the peer's relay, then the
 # upgrade moves the packets off relays entirely (the client's bounded
 # wait for path=webrtc is the assertion).
 run_pair "endpoint-webrtc-cross-wasmtime-wasmtime" \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role server --relay "$RELAY_B_URL" --webrtc -- \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --peer-relay "$RELAY_B_URL" \
         --message "matrix webrtc cross" --peer
 
@@ -196,12 +195,12 @@ run_pair "endpoint-webrtc-cross-wasmtime-wasmtime" \
 
 run_pair "interop-udp-ours-client" \
     timeout 120 "$IROH_PEER" --role server --datagram -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --datagram --message "interop ours-client" \
         --direct @DIRECT@ --peer
 
 run_pair "interop-udp-theirs-client" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --datagram -- \
     timeout 120 "$IROH_PEER" --role client --datagram \
         --message "interop theirs-client" --direct @DIRECT@ --peer
@@ -221,7 +220,7 @@ run_client_failure() {
     local name=$1 with_server=$2 pattern=$3; shift 3
     local server_pid="" server_id="0000000000000000000000000000000000000000000000000000000000000000"
     if [ "$with_server" = 1 ]; then
-        timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+        timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
             > "$LOGDIR/$name-server.log" 2>&1 &
         server_pid=$!
         for _ in $(seq 1 60); do
@@ -246,11 +245,11 @@ run_client_failure() {
 }
 
 run_client_failure "endpoint-negative-wrong-alpn" 1 "ConnectFailed" \
-    timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 60 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --alpn "iroh-demo-negative/0" --peer
 
 run_client_failure "endpoint-negative-absent-peer" 0 "TimedOut" \
-    timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 60 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --peer
 
 # Identity constructor failure paths, asserted in-guest: from-keys must
@@ -259,7 +258,7 @@ run_client_failure "endpoint-negative-absent-peer" 0 "TimedOut" \
 # process; no bind, relay traffic, or peer involved (the relay URL just
 # satisfies the driver's CLI).
 name="endpoint-negative-identity-from-keys"
-if timeout 60 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+if timeout 60 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
     --identity-negative > "$LOGDIR/$name.log" 2>&1 \
     && grep -q "^OK:" "$LOGDIR/$name.log"; then
     echo "PASS $name"
@@ -273,9 +272,9 @@ fi
 # must surface on read and on read-via-stream's future — never as a
 # clean FIN — and stay latched.
 run_pair "endpoint-negative-stream" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --stream-negative -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --stream-negative --peer
 
 # The accept backlog (issue #13, finding B7), asserted in-guest in one
@@ -283,7 +282,7 @@ run_pair "endpoint-negative-stream" \
 # accepting drains room. The role/relay flags satisfy the driver; no
 # peer process exists.
 name="endpoint-negative-backlog"
-if timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+if timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
     --backlog-negative > "$LOGDIR/$name.log" 2>&1 \
     && grep -q "^OK:" "$LOGDIR/$name.log"; then
     echo "PASS $name"

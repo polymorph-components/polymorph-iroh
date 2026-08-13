@@ -51,7 +51,7 @@ validate-wit:
 # The execution-model probes on the Wasmtime host.
 probes: build build-components
     cargo build -p iroh-exec-model-guest --target wasm32-wasip2 --release
-    target/host/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
+    target/host/iroh-hosts exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.
 matrix: build relay-build

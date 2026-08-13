@@ -1,10 +1,10 @@
-//! `iroh-endpoint-demo` host: runs one peer of the endpoint echo demo —
-//! the `wac`-composed endpoint+demo component — under Wasmtime.
+//! The `endpoint-demo` subcommand: runs one peer of the endpoint echo
+//! demo — the `wac`-composed endpoint+demo component — under Wasmtime.
 //!
 //! ```sh
 //! iroh-relay --dev &   # serves ws on 127.0.0.1:3340
-//! endpoint-demo <composed.wasm> --role server --relay http://127.0.0.1:3340 &
-//! endpoint-demo <composed.wasm> --role client --relay http://127.0.0.1:3340 --peer <endpoint-id>
+//! iroh-hosts endpoint-demo <composed.wasm> --role server --relay http://127.0.0.1:3340 &
+//! iroh-hosts endpoint-demo <composed.wasm> --role client --relay http://127.0.0.1:3340 --peer <endpoint-id>
 //! ```
 
 use polymorph_webcrypto_wasmtime::{WasiWebcryptoCtx, WasiWebcryptoCtxView, WasiWebcryptoView};
@@ -77,115 +77,70 @@ impl WasiWebsocketView for Ctx {
     }
 }
 
-struct Cli {
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Role {
+    Client,
+    Server,
+}
+
+#[derive(clap::Args)]
+pub struct Args {
+    /// Path to the wac-composed endpoint+demo component.
     component: String,
-    role: DemoRole,
+    /// Which side this process drives.
+    #[arg(long, value_enum)]
+    role: Role,
+    /// This process's home relay base URL.
+    #[arg(long)]
     relay: String,
+    /// The server peer's endpoint ID (hex). Required on the client.
+    #[arg(long)]
     peer: Option<String>,
+    /// The ALPN the client offers, overriding the demo's own (a
+    /// failure-path probe knob).
+    #[arg(long)]
     alpn: Option<String>,
+    /// The `ip:port` to bind the endpoint's UDP socket to.
+    #[arg(long)]
     udp_bind: Option<String>,
+    /// A direct `ip:port` for the server peer, preferred over the relay.
+    #[arg(long)]
     direct: Option<String>,
+    /// Enables the WebRTC wire.
+    #[arg(long)]
     webrtc: bool,
+    /// The server peer's relay URL, when it differs from `--relay`.
+    #[arg(long)]
     peer_relay: Option<String>,
+    /// Replace the client's message with this many zero bytes (bulk).
+    #[arg(long)]
     payload_bytes: Option<u64>,
+    /// Also exchange one datagram echo after the stream echo.
+    #[arg(long)]
     datagram: bool,
+    /// With --datagram: wait for max-datagram-size to reach this many
+    /// bytes, then exchange a datagram of exactly this size.
+    #[arg(long)]
     datagram_ceiling: Option<u32>,
+    /// Construct the identity from webcrypto key handles
+    /// (identity-from-keys) instead of identity-generate.
+    #[arg(long)]
     inject_identity: bool,
+    /// Probe the identity constructor's failure paths instead of the echo.
+    #[arg(long)]
     identity_negative: bool,
+    /// Probe the stream and connect lifecycles instead of the echo.
+    #[arg(long)]
     stream_negative: bool,
+    /// Probe the accept backlog instead of the echo.
+    #[arg(long)]
     backlog_negative: bool,
+    /// The application message the client sends.
+    #[arg(long, default_value = "hello through the endpoint surface")]
     message: String,
 }
 
-fn usage() -> wasmtime::Error {
-    wasmtime::Error::msg(
-        "usage: endpoint-demo <composed.wasm> --role <client|server> \
-         --relay <relay-url> [--peer <endpoint-id-hex>] [--alpn A] \
-         [--udp-bind <ip:port>] [--direct <ip:port>] [--webrtc] \
-         [--peer-relay <relay-url>] [--payload-bytes N] [--datagram] \
-         [--datagram-ceiling BYTES] [--inject-identity] \
-         [--identity-negative] [--stream-negative] [--backlog-negative] \
-         [--message M]",
-    )
-}
-
-fn parse_args() -> Result<Cli> {
-    let mut args = std::env::args().skip(1);
-    let component = args.next().ok_or_else(usage)?;
-    let mut role = None;
-    let mut relay = None;
-    let mut peer = None;
-    let mut alpn = None;
-    let mut udp_bind = None;
-    let mut direct = None;
-    let mut webrtc = false;
-    let mut peer_relay = None;
-    let mut payload_bytes = None;
-    let mut datagram = false;
-    let mut datagram_ceiling = None;
-    let mut inject_identity = false;
-    let mut identity_negative = false;
-    let mut stream_negative = false;
-    let mut backlog_negative = false;
-    let mut message = "hello through the endpoint surface".to_string();
-    while let Some(flag) = args.next() {
-        let mut value = || args.next().ok_or_else(usage);
-        match flag.as_str() {
-            "--role" => {
-                role = Some(match value()?.as_str() {
-                    "client" => DemoRole::Client,
-                    "server" => DemoRole::Server,
-                    _ => return Err(usage()),
-                })
-            }
-            "--relay" => relay = Some(value()?),
-            "--peer" => peer = Some(value()?),
-            "--alpn" => alpn = Some(value()?),
-            "--udp-bind" => udp_bind = Some(value()?),
-            "--direct" => direct = Some(value()?),
-            "--webrtc" => webrtc = true,
-            "--peer-relay" => peer_relay = Some(value()?),
-            "--payload-bytes" => {
-                payload_bytes = Some(value()?.parse::<u64>().map_err(|_| usage())?)
-            }
-            "--datagram" => datagram = true,
-            "--datagram-ceiling" => {
-                datagram_ceiling = Some(value()?.parse::<u32>().map_err(|_| usage())?)
-            }
-            "--inject-identity" => inject_identity = true,
-            "--identity-negative" => identity_negative = true,
-            "--stream-negative" => stream_negative = true,
-            "--backlog-negative" => backlog_negative = true,
-            "--message" => message = value()?,
-            _ => return Err(usage()),
-        }
-    }
-    Ok(Cli {
-        component,
-        role: role.ok_or_else(usage)?,
-        relay: relay.ok_or_else(usage)?,
-        peer,
-        alpn,
-        udp_bind,
-        direct,
-        webrtc,
-        peer_relay,
-        payload_bytes,
-        datagram,
-        datagram_ceiling,
-        inject_identity,
-        identity_negative,
-        stream_negative,
-        backlog_negative,
-        message,
-    })
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let _ = env_logger::try_init();
-    let cli = parse_args()?;
-
+pub async fn run(cli: Args) -> Result<()> {
     let mut config = Config::new();
     config.wasm_component_model(true);
     config.wasm_component_model_async(true);
@@ -214,7 +169,10 @@ async fn main() -> Result<()> {
     );
     let demo = bindings::IrohDemo::instantiate_async(&mut store, &component, &linker).await?;
 
-    let role = cli.role;
+    let role = match cli.role {
+        Role::Client => DemoRole::Client,
+        Role::Server => DemoRole::Server,
+    };
     let config = RunConfig {
         relay_url: cli.relay,
         role,

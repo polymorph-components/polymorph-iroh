@@ -3,10 +3,10 @@ name = "iroh-spike-host-wasmtime"
 version = "0.0.1"
 edition.workspace = true
 publish.workspace = true
-description = "Spike native host: runs the iroh-spike guest under Wasmtime"
+description = "The Wasmtime host drivers as one multi-call binary (spike, endpoint-demo, exec-model)"
 
 [[bin]]
-name = "iroh-spike-host"
+name = "iroh-hosts"
 path = "src/main.rs"
 
 [dependencies]
@@ -23,4 +23,5 @@ wasmtime = { version = "47", features = ["component-model", "component-model-asy
 wasmtime-wasi = { version = "47", features = ["p3"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 anyhow = "1"
+clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"

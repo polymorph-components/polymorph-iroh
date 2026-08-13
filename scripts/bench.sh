@@ -26,8 +26,7 @@ RELAY_PORT=3341
 RELAY_URL="http://127.0.0.1:${RELAY_PORT}"
 SPIKE_WASM=target/wasm32-wasip2/release/iroh_spike_guest.wasm
 COMPOSED_WASM=target/components/iroh-demo.wasm
-HOST=target/host/iroh-spike-host
-EHOST=target/host/endpoint-demo
+IROH_HOSTS=target/host/iroh-hosts
 LOGDIR=$(mktemp -d)
 OUTDIR=target/bench
 REPORT=$OUTDIR/report.tsv
@@ -169,14 +168,14 @@ bench_bulk() {
 # retired by issue #42 cannot quietly return.
 
 bench_latency spike-relay-wasmtime "$LATENCY_ITERS" \
-    timeout 120 "$HOST" "$SPIKE_WASM" --role server --server "$RELAY_URL" --transport relay -- \
-    timeout 120 "$HOST" "$SPIKE_WASM" --role client --server "$RELAY_URL" --transport relay \
+    timeout 120 "$IROH_HOSTS" spike "$SPIKE_WASM" --role server --server "$RELAY_URL" --transport relay -- \
+    timeout 120 "$IROH_HOSTS" spike "$SPIKE_WASM" --role client --server "$RELAY_URL" --transport relay \
         --message bench --peer
 SPIKE_RELAY_HS=$LAST_HANDSHAKE_MS
 
 bench_latency endpoint-relay-wasmtime "$LATENCY_ITERS" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" -- \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --message bench --peer
 
 if [ -n "$SPIKE_RELAY_HS" ] && [ -n "$LAST_HANDSHAKE_MS" ]; then
@@ -187,36 +186,36 @@ if [ -n "$SPIKE_RELAY_HS" ] && [ -n "$LAST_HANDSHAKE_MS" ]; then
 fi
 
 bench_latency endpoint-udp-wasmtime "$LATENCY_ITERS" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --message bench --direct @DIRECT@ --peer
 
 # handshake_ms is the relay dial; roundtrip_ms rides the upgraded
 # channel (the demo waits for path=webrtc before sending).
 bench_latency endpoint-webrtc-wasmtime "$LATENCY_ITERS" \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role server --relay "$RELAY_URL" --webrtc -- \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --message bench --peer
 
 # --- bulk rows (#1: the wires' data-plane cost, incl. CC stacking) ---------
 
 bench_bulk endpoint-relay-bulk "$BULK_ITERS" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" -- \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --payload-bytes "$BULK_BYTES" --peer
 
 bench_bulk endpoint-udp-bulk "$BULK_ITERS" \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --udp-bind 127.0.0.1:0 --payload-bytes "$BULK_BYTES" --direct @DIRECT@ --peer
 
 bench_bulk endpoint-webrtc-bulk "$BULK_ITERS" \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role server --relay "$RELAY_URL" --webrtc -- \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role client --relay "$RELAY_URL" --webrtc --payload-bytes "$BULK_BYTES" --peer
 
 # ---------------------------------------------------------------------------

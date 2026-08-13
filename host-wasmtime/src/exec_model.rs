@@ -1,4 +1,4 @@
-//! Execution-model probe driver: runs the `exec-model` experiment guest
+//! The `exec-model` subcommand: runs the exec-model experiment guest
 //! under Wasmtime and prints one `PROBE <name>: <outcome>` line per probe.
 //! See `experiments/exec-model/wit/world.wit`.
 
@@ -116,11 +116,15 @@ fn print_probe(name: &str, result: &std::result::Result<String, String>) {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "target/wasm32-wasip2/release/iroh_exec_model_guest.wasm".into());
+#[derive(clap::Args)]
+pub struct Args {
+    /// Path to the exec-model probe component.
+    #[arg(default_value = "target/wasm32-wasip2/release/iroh_exec_model_guest.wasm")]
+    component: String,
+}
+
+pub async fn run(cli: Args) -> Result<()> {
+    let path = cli.component;
 
     let mut config = Config::new();
     config.wasm_component_model(true);

@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 PROD_RELAY_A="${PROD_RELAY_A:-https://use1-1.relay.n0.iroh.link}"
 PROD_RELAY_B="${PROD_RELAY_B:-https://euc1-1.relay.n0.iroh.link}"
 COMPOSED_WASM=target/components/iroh-demo.wasm
-EHOST=target/host/endpoint-demo
+IROH_HOSTS=target/host/iroh-hosts
 LOGDIR=$(mktemp -d)
 FAILURES=0
 
@@ -61,23 +61,23 @@ check() {
 }
 
 check prod-relay-echo relay \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$PROD_RELAY_A" -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$PROD_RELAY_A" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$PROD_RELAY_A" -- \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$PROD_RELAY_A" \
         --message "prod relay echo" --peer
 
 # Signaling datagrams (the 0x00-prefix convention) must forward through
 # production infrastructure unmodified; the echo then rides the local
 # channel while only signaling crossed the internet.
 check prod-webrtc-upgrade webrtc \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role server --relay "$PROD_RELAY_A" --webrtc -- \
-    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$EHOST" "$COMPOSED_WASM" \
+    env WEBRTC_INCLUDE_LOOPBACK=1 timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" \
         --role client --relay "$PROD_RELAY_A" --webrtc \
         --message "prod webrtc upgrade" --peer
 
 check prod-cross-relay relay \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$PROD_RELAY_B" -- \
-    timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$PROD_RELAY_A" \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role server --relay "$PROD_RELAY_B" -- \
+    timeout 120 "$IROH_HOSTS" endpoint-demo "$COMPOSED_WASM" --role client --relay "$PROD_RELAY_A" \
         --peer-relay "$PROD_RELAY_B" --message "prod cross relay" --peer
 
 if [ "$FAILURES" != 0 ]; then
