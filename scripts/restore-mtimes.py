@@ -12,12 +12,21 @@ Files whose content differs from HEAD keep their mtimes: backdating a modified
 file would hide the modification from cargo and produce a build that does not
 match the source.
 
+Each file also gets a sub-second offset derived from its path. Cargo records
+a path dependency's freshness as the newest mtime in the package *and the name
+of the file that carried it*, and a commit that touched several files would
+otherwise give them one identical timestamp — leaving the newest file to be
+decided by directory order, which differs between clones. The package then
+looks changed on a machine that walked its directory differently, and every
+crate above it rebuilds.
+
 Usage: restore-mtimes.py [REPO ...]
 """
 
 import os
 import subprocess
 import sys
+import zlib
 
 
 def git(repo, *args):
@@ -64,8 +73,9 @@ def restore(repo):
             continue
         pending.discard(line)
         path = os.path.join(repo, line)
+        stamp = timestamp * 10**9 + zlib.crc32(line.encode()) % 10**9
         try:
-            os.utime(path, (timestamp, timestamp))
+            os.utime(path, ns=(stamp, stamp))
             stamped += 1
         except OSError:
             pass
