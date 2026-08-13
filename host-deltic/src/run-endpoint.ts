@@ -11,9 +11,10 @@
 //
 //   just exam-deltic
 //
-// `--unstable-net` is not needed by anything here today (see src/sockets.ts:
-// the browser profile binds no UDP socket and the exam asserts zero
-// `wasi:sockets` calls); a direct-path UDP leg would add it.
+// `wasi:sockets/types` is served for real (src/sockets.ts, over
+// `Deno.listenDatagram`; the `net` unstable feature comes from this
+// package's deno.json). The relay-only scenarios still assert zero
+// `wasi:sockets` calls; scenario 6 runs QUIC over the UDP direct path.
 //
 // ---------------------------------------------------------------------------
 // Why scenarios 2-4 retry: a guest-side RefCell borrow hazard.
@@ -109,6 +110,12 @@ interface EchoOptions {
   readonly webrtc: boolean;
   /** Park `endpoint.accept()` BEFORE the client dials (the jco#13 shape). */
   readonly parkAccept: boolean;
+  /**
+   * Bind a UDP socket on both endpoints and dial the server's direct
+   * address as the only entry (the matrix's UDP-row choreography: the
+   * client must bind its own socket too, or connect() ignores ip entries).
+   */
+  readonly direct?: boolean;
   /** Extra cross-task assertions run inside the exchange. */
   readonly onExchange?: (ctx: ExchangeContext) => Promise<void>;
 }
@@ -141,7 +148,12 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
   const server = await newEndpointInstance({ label: "server" });
   const client = await newEndpointInstance({ label: "client" });
 
-  const bindOptions = { alpns: [ALPN], relayUrl: relay.url, webrtc: options.webrtc };
+  const bindOptions = {
+    alpns: [ALPN],
+    relayUrl: relay.url,
+    webrtc: options.webrtc,
+    ...(options.direct ? { udpBindAddr: "127.0.0.1:0" } : {}),
+  };
   const sep = await deadline(bindEndpoint(server, bindOptions), 30_000, "server bind");
   const cep = await deadline(bindEndpoint(client, bindOptions), 30_000, "client bind");
   const serverId = await sep.id();
@@ -149,9 +161,21 @@ async function echoOnce(relay: Relay, options: EchoOptions): Promise<EchoReport>
 
   // The dial hints. A `webrtc` entry is an UPGRADE HINT, not a dial target:
   // the handshake runs on the relay and the packets move to the data channel
-  // once it opens (wit/iroh.wit's transport-addr docs).
-  const addrs: TransportAddr[] = [{ kind: "relay", value: relay.url }];
-  if (options.webrtc) addrs.push({ kind: "webrtc", value: relay.url });
+  // once it opens (wit/iroh.wit's transport-addr docs). An `ip` entry is a
+  // dial target with no relay fallback (scripts/matrix.sh, the UDP row), so
+  // on the direct wire it is the ONLY entry: a passing echo asserts QUIC
+  // flowed over UDP.
+  let addrs: TransportAddr[];
+  if (options.direct) {
+    const direct = await sep.directAddr();
+    if (direct === undefined) {
+      throw new Error("the server bound a UDP socket but reports no direct-addr");
+    }
+    addrs = [{ kind: "ip", value: direct }];
+  } else {
+    addrs = [{ kind: "relay", value: relay.url }];
+    if (options.webrtc) addrs.push({ kind: "webrtc", value: relay.url });
+  }
 
   // The server's accept. Parked BEFORE the dial it is the jco#13 shape (a
   // cross-task wakeup delivered to a task that parked first); deferred it
@@ -409,47 +433,59 @@ async function main(): Promise<number> {
       check(
         v,
         direct === undefined,
-        "direct-addr is none (the browser profile binds no UDP socket)",
+        "direct-addr is none (udp-bind-addr was none, which binds no socket)",
       );
       const idAgain = await deadline(ep.id(), 10_000, "id() again");
       check(v, hex(idAgain) === hex(id), "the identity is stable across export calls");
       check(
         v,
         udpCallLog().length === 0,
-        `zero wasi:sockets calls (browser profile) — log: [${udpCallLog().join(", ")}]`,
+        `zero wasi:sockets calls without udp-bind-addr — log: [${udpCallLog().join(", ")}]`,
       );
       await deadline(ep.close(), 10_000, "close() after bind");
 
       // The deployment-profile latitude (wit/iroh.wit, udp-bind-addr):
-      // this host has no UDP, so a bind that asks for the direct path
-      // must fail not-supported — the stub's honest error-code carried
-      // through. Probed after the zero-calls check above: this call is
-      // MEANT to reach the stub.
-      let unsupported = "no error";
-      try {
-        await deadline(
-          bindEndpoint(inst, {
-            alpns: [ALPN],
-            relayUrl: relay.url,
-            udpBindAddr: "127.0.0.1:0",
-            webrtc: false,
-          }),
-          30_000,
-          "bind with udp-bind-addr",
-        );
-        unsupported = "bind succeeded";
-      } catch (err) {
-        if (err instanceof ComponentException) {
-          const p = err.payload as { kind?: string } | undefined;
-          unsupported = p?.kind ?? "unknown";
-        } else {
-          unsupported = describeError(err);
-        }
-      }
+      // this host provides real UDP (src/sockets.ts), so a bind that asks
+      // for the direct path binds a socket and reports it. The call log
+      // reads back the guest wire's exact driving sequence
+      // (endpoint/src/udp.rs), and the teardown's self-wake send is the
+      // host-side proof that the pump retired its parked receive without
+      // cancelling an in-flight import.
+      const ep2 = await deadline(
+        bindEndpoint(inst, {
+          alpns: [ALPN],
+          relayUrl: relay.url,
+          udpBindAddr: "127.0.0.1:0",
+          webrtc: false,
+        }),
+        30_000,
+        "bind with udp-bind-addr",
+      );
+      const direct2 = await deadline(ep2.directAddr(), 10_000, "direct-addr() with a socket");
       check(
         v,
-        unsupported === "not-supported",
-        `udp-bind-addr on the browser profile fails not-supported: ${unsupported}`,
+        direct2 !== undefined && /^127\.0\.0\.1:[1-9][0-9]*$/.test(direct2),
+        `direct-addr reports the bound socket: ${direct2}`,
+      );
+      check(
+        v,
+        udpCallLog().slice(0, 3).join(",") ===
+          "udp-socket.create,udp-socket.bind,udp-socket.get-local-address",
+        `the socket wire's driving sequence — log: [${udpCallLog().join(", ")}]`,
+      );
+      await deadline(ep2.close(), 10_000, "close() with a socket");
+      // The self-wake lands after close through the settlement pump; poll
+      // bounded rather than assuming scheduling.
+      let sawSelfWake = false;
+      for (let i = 0; i < 40 && !sawSelfWake; i++) {
+        sawSelfWake = udpCallLog().includes("udp-socket.send");
+        if (!sawSelfWake) await settle(50);
+      }
+      const tail = udpCallLog().slice(3);
+      check(
+        v,
+        sawSelfWake && tail.every((c) => c === "udp-socket.send" || c === "udp-socket.receive"),
+        `teardown self-woke the parked receive — post-bind calls: [${tail.join(", ")}]`,
       );
 
       await settle();
@@ -643,9 +679,41 @@ async function main(): Promise<number> {
     });
 
     // -- 6 -------------------------------------------------------------------
+    await scenario(6, "direct UDP path (wasi:sockets over Deno.listenDatagram)", async (v) => {
+      resetUdpCallLog();
+      const r = await echoWithRetries(relay, v, {
+        webrtc: false,
+        parkAccept: false,
+        direct: true,
+      });
+      check(v, r.received === MESSAGE, `the server received ${JSON.stringify(r.received)}`);
+      check(v, r.echoed === MESSAGE.toUpperCase(), "the client read back the echo");
+      // The ip entry was the only dial target, so the paths are the wire
+      // assertion; the call log corroborates that the packets crossed the
+      // wasi:sockets boundary.
+      check(v, r.clientPath === "ip", `connection.path is "ip" on the client: ${r.clientPath}`);
+      check(v, r.serverPath === "ip", `connection.path is "ip" on the server: ${r.serverPath}`);
+      const sends = udpCallLog().filter((c) => c === "udp-socket.send").length;
+      const receives = udpCallLog().filter((c) => c === "udp-socket.receive").length;
+      check(
+        v,
+        sends > 0 && receives > 0,
+        `the sockets carried the exchange (${sends} sends, ${receives} receives)`,
+      );
+      check(
+        v,
+        r.serverCloseInfo.code === CLOSE_CODE && r.serverCloseInfo.reason === CLOSE_REASON,
+        `the server read the client's application close from wait-closed`,
+      );
+      v.detail = `handshake ${r.handshakeMs.toFixed(0)} ms, roundtrip ${
+        r.roundtripMs.toFixed(0)
+      } ms over loopback UDP`;
+    });
+
+    // -- 7 -------------------------------------------------------------------
     // Last by necessity: this scenario stops the relay every later
     // scenario would need.
-    await scenario(6, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(7, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),

@@ -32,5 +32,6 @@ checks:
     @just gha::_step test
     @just gha::_step probes
     @just gha::_step matrix
+    @just gha::_step deltic-test
     @just gha::_step exam-deltic
     @just gha::_step bench

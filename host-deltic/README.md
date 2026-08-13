@@ -17,8 +17,12 @@ imports, from the same pinned checkouts `scripts/setup.sh` maintains:
 | `polymorph:websocket/connections` | `.deps/websocket/js/deltic/websocket.ts` |
 | `polymorph:webrtc-datachannels/connections` | `.deps/webrtc/deltic-impl/src/webrtc.ts` |
 | `polymorph:webcrypto/*` | `.deps/webcrypto/js/deltic/src/mod.ts` |
-| `wasi:sockets/types` | `src/sockets.ts` — fail-on-call stubs (the browser profile; see its header) |
+| `wasi:sockets/types` | `src/sockets.ts` — real UDP over `Deno.listenDatagram` (the `net` unstable feature, enabled in `deno.json`; recorded divergences in its header) |
 | everything WASI | deltic's `wasi-shims` at the pinned release |
+
+`just deltic-test` runs the sockets provider's unit tests
+(`src/sockets_test.ts`): the address codec, the wasmtime-parity state
+machine, and the branded error contract.
 
 ## The exam
 
@@ -29,20 +33,29 @@ just exam-deltic
 builds the endpoint component and the stock relay, installs the leg's
 pinned module graph + the `node-datachannel` addon
 (`just deltic-setup`, idempotent), fetches the sha256-pinned translator
-release asset, and runs `src/run-endpoint.ts` — five scenarios:
+release asset, and runs `src/run-endpoint.ts` — seven scenarios:
 
 1. **bind + identity** — `identity-generate` → `new
    EndpointOptions(identity)` → `Endpoint.bind`; the Ed25519 identity
    minted through `polymorph:webcrypto`; three export calls against the
-   live detached pump (the lann/jco#11 shape).
+   live detached pump (the lann/jco#11 shape); then a second bind with
+   `udp-bind-addr`, whose socket `direct-addr` reports and whose
+   teardown self-wake the call log proves.
 2. **relay echo** — two endpoint instances, QUIC handshake and an
-   authenticated echo over a stock `iroh-relay --dev`.
+   authenticated echo over a stock `iroh-relay --dev`; zero
+   `wasi:sockets` calls.
 3. **WebRTC upgrade** — a relay-dialed connection moves onto the data
    channel; `connection.path` reports the move.
 4. **concurrency proof points** — 40 export calls against two live
    pumps (jco#11) and `accept` parked before the dial and woken by the
    pump (jco#13): issue #10's rows as passing assertions.
-5. **teardown** — idempotent close, no guest traps, the relay reaped.
+5. **stream terminal outcomes** — a peer reset and a connection close
+   surface on `read` and stay latched, never a clean FIN.
+6. **direct UDP path** — both endpoints bind loopback sockets and the
+   client dials the server's `direct-addr` as the only entry: QUIC over
+   UDP through `wasi:sockets`, `connection.path` reporting `ip` on both
+   sides.
+7. **teardown** — idempotent close, no guest traps, the relay reaped.
 
 The exam retries the handshake-shaped scenarios a bounded number of
 times: `endpoint/src/endpoint_impl.rs`'s shared state has a RefCell
@@ -69,7 +82,8 @@ step.
   bare specifiers, which resolve against this config as the entry
   import map. `minimumDependencyAge` exempts `jsr:@deltic/*` from
   Deno's default 24-hour supply-chain gate so same-day prereleases
-  resolve; everything else keeps the default.
+  resolve; everything else keeps the default. `unstable: ["net"]`
+  enables `Deno.listenDatagram` for the sockets provider.
 - `experiments/iroh-relay-ws/host/deno.json` — the upstream-iroh
   spikes' shared config, same versions by repo convention; the
   `exam-deltic` recipe asserts the two configs agree before running.

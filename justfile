@@ -62,10 +62,15 @@ matrix: build relay-build
 deltic-setup:
     cd host-deltic && deno install --frozen --allow-scripts=npm:node-datachannel
 
+# The deltic host's unit tests: the `wasi:sockets` UDP provider's codec,
+# state machine, and error contract (host-deltic/src/sockets_test.ts).
+deltic-test: deltic-setup
+    deno test -A --config host-deltic/deno.json --frozen host-deltic/src/
+
 # The endpoint exam on the deltic host: the endpoint component
 # runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
-# upgrade, the issue #10 concurrency rows, teardown. See
-# host-deltic/README.md.
+# upgrade, the issue #10 concurrency rows, the direct UDP path, teardown.
+# See host-deltic/README.md.
 exam-deltic: build-components relay-build deltic-setup
     #!/usr/bin/env bash
     set -euo pipefail
