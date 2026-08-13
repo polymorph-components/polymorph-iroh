@@ -6,13 +6,10 @@ use std::pin::Pin;
 use std::sync::mpsc;
 use std::task::{Context, Poll};
 
-use polymorph_webcrypto_wasmtime::{WasiWebcryptoCtx, WasiWebcryptoCtxView, WasiWebcryptoView};
-use wasmtime::component::{
-    Accessor, Component, HasData, Linker, ResourceTable, Source, StreamConsumer, StreamReader,
-    StreamResult,
-};
-use wasmtime::{Config, Engine, Result, Store, StoreContextMut};
-use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+use iroh_spike_host_wasmtime::{engine, linker, store, Ctx};
+use wasmtime::component::Component;
+use wasmtime::component::{Accessor, Source, StreamConsumer, StreamReader, StreamResult};
+use wasmtime::{Result, StoreContextMut};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -25,34 +22,6 @@ mod bindings {
             default: async,
         },
     });
-}
-
-struct Ctx {
-    wasi: WasiCtx,
-    webcrypto: WasiWebcryptoCtx,
-    table: ResourceTable,
-}
-
-impl HasData for Ctx {
-    type Data<'a> = &'a mut Self;
-}
-
-impl WasiView for Ctx {
-    fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView {
-            ctx: &mut self.wasi,
-            table: &mut self.table,
-        }
-    }
-}
-
-impl WasiWebcryptoView for Ctx {
-    fn webcrypto(&mut self) -> WasiWebcryptoCtxView<'_> {
-        WasiWebcryptoCtxView {
-            ctx: &mut self.webcrypto,
-            table: &mut self.table,
-        }
-    }
 }
 
 /// Counts bytes and stops accepting (reports `Dropped`) once `limit` is
@@ -122,26 +91,10 @@ async fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "target/wasm32-wasip2/release/iroh_exec_model_guest.wasm".into());
 
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    config.wasm_component_model_async(true);
-    let engine = Engine::new(&config)?;
+    let engine = engine()?;
     let component = Component::from_file(&engine, &path)?;
-    let mut linker: Linker<Ctx> = Linker::new(&engine);
-    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-    wasmtime_wasi::p3::add_to_linker(&mut linker)?;
-    polymorph_webcrypto_wasmtime::add_to_linker(&mut linker)?;
-
-    let mut wasi = WasiCtx::builder();
-    wasi.inherit_stdio().inherit_env();
-    let mut store = Store::new(
-        &engine,
-        Ctx {
-            wasi: wasi.build(),
-            webcrypto: WasiWebcryptoCtx::new(),
-            table: ResourceTable::new(),
-        },
-    );
+    let linker = linker(&engine)?;
+    let mut store = store(&engine);
     let probe = bindings::ExecModel::instantiate_async(&mut store, &component, &linker).await?;
 
     store

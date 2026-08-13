@@ -23,12 +23,9 @@
 //! iroh-spike-host <component.wasm> --role client --server http://127.0.0.1:3340 --peer <endpoint-id>
 //! ```
 
-use polymorph_webcrypto_wasmtime::{WasiWebcryptoCtx, WasiWebcryptoCtxView, WasiWebcryptoView};
-use wasmtime::component::{Accessor, Component, HasData, Linker, ResourceTable};
-use wasmtime::{Config, Engine, Result, Store};
-use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-use wasmtime_webrtc_datachannels::{self as webrtc_host, WebrtcCtx, WebrtcCtxView, WebrtcView};
-use wasmtime_websocket::{WasiWebsocketCtx, WasiWebsocketCtxView, WasiWebsocketView};
+use iroh_spike_host_wasmtime::{engine, linker, store, Ctx};
+use wasmtime::component::{Accessor, Component};
+use wasmtime::Result;
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -46,75 +43,6 @@ mod bindings {
 use bindings::exports::polymorph::iroh_spike::demo::{
     Role as DemoRole, RunConfig, Transport as DemoTransport,
 };
-
-struct Ctx {
-    wasi: WasiCtx,
-    webrtc: WebrtcCtx,
-    webcrypto: WasiWebcryptoCtx,
-    websocket: WasiWebsocketCtx,
-    table: ResourceTable,
-}
-
-impl HasData for Ctx {
-    type Data<'a> = &'a mut Self;
-}
-
-impl WasiView for Ctx {
-    fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView {
-            ctx: &mut self.wasi,
-            table: &mut self.table,
-        }
-    }
-}
-
-impl WebrtcView for Ctx {
-    fn webrtc(&mut self) -> WebrtcCtxView<'_> {
-        WebrtcCtxView {
-            ctx: &mut self.webrtc,
-            table: &mut self.table,
-        }
-    }
-}
-
-impl WasiWebcryptoView for Ctx {
-    fn webcrypto(&mut self) -> WasiWebcryptoCtxView<'_> {
-        WasiWebcryptoCtxView {
-            ctx: &mut self.webcrypto,
-            table: &mut self.table,
-        }
-    }
-}
-
-impl WasiWebsocketView for Ctx {
-    fn websocket(&mut self) -> WasiWebsocketCtxView<'_> {
-        WasiWebsocketCtxView {
-            ctx: &mut self.websocket,
-            table: &mut self.table,
-        }
-    }
-}
-
-/// The component model with component-model async enabled (the guest's
-/// imports and its `run` export use the async ABI).
-fn engine() -> Result<Engine> {
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    config.wasm_component_model_async(true);
-    Engine::new(&config)
-}
-
-/// The WebRTC context, honoring the demo hosts' `WEBRTC_INCLUDE_LOOPBACK`
-/// convention (same-host peers need loopback ICE candidates to pair).
-fn webrtc_ctx() -> WebrtcCtx {
-    let mut ctx = WebrtcCtx::new();
-    if std::env::var_os("WEBRTC_INCLUDE_LOOPBACK").is_some() {
-        ctx.set_setting_engine_hook(|engine| {
-            engine.set_include_loopback_candidate(true);
-        });
-    }
-    ctx
-}
 
 struct Cli {
     component: String,
@@ -181,26 +109,8 @@ async fn main() -> Result<()> {
 
     let engine = engine()?;
     let component = Component::from_file(&engine, &cli.component)?;
-    let mut linker: Linker<Ctx> = Linker::new(&engine);
-    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-    // Serves the guest's `wasi:clocks@0.3` timer alongside the p3 surface.
-    wasmtime_wasi::p3::add_to_linker(&mut linker)?;
-    webrtc_host::add_to_linker(&mut linker)?;
-    polymorph_webcrypto_wasmtime::add_to_linker(&mut linker)?;
-    wasmtime_websocket::add_to_linker(&mut linker)?;
-
-    let mut wasi = WasiCtx::builder();
-    wasi.inherit_stdio().inherit_env();
-    let mut store = Store::new(
-        &engine,
-        Ctx {
-            wasi: wasi.build(),
-            webrtc: webrtc_ctx(),
-            webcrypto: WasiWebcryptoCtx::new(),
-            websocket: WasiWebsocketCtx::new(),
-            table: ResourceTable::new(),
-        },
-    );
+    let linker = linker(&engine)?;
+    let mut store = store(&engine);
     let demo = bindings::IrohSpike::instantiate_async(&mut store, &component, &linker).await?;
 
     let role = cli.role;
