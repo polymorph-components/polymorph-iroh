@@ -54,7 +54,15 @@ jobs:
           # "up-to-date", discarding everything the change forced it to
           # build, on every run (how #63's target/host tree recompiled
           # cold each time). Hash the roots into the key ourselves.
-          key: root-manifests-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml') }}
+          #
+          # The justfiles are in the key for the same reason: the gate's
+          # cargo invocations live there, and invocation shape (which
+          # packages are selected together) feeds feature unification and
+          # thus every unit hash. A shape change with an unrotated key
+          # leaves every run full-matching a cache whose artifacts no
+          # longer match any unit the gate builds (how #73's split
+          # build-hosts recompiled ~360 host-profile crates per run).
+          key: gate-inputs-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml', 'justfile', '.github/justfile') }}
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
           # them back to whatever versions main's cache holds. Excluding
