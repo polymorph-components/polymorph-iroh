@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::mpsc;
 use std::task::{Context, Poll};
 
-use iroh_spike_host_wasmtime::{engine, linker, store, Ctx};
+use iroh_host_wasmtime::{engine, linker, store, Ctx};
 use wasmtime::component::Component;
 use wasmtime::component::{Accessor, Source, StreamConsumer, StreamReader, StreamResult};
 use wasmtime::{Result, StoreContextMut};

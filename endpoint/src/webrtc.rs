@@ -1,7 +1,7 @@
 //! The WebRTC wire: data channels negotiated by signaling through the
 //! relay, carrying QUIC one datagram per binary message.
 //!
-//! Signaling is the spike's proven convention, now a recorded ruling
+//! Signaling is a recorded ruling
 //! (issue #2): one JSON signal per relay datagram, marked by a leading
 //! `0x00` byte — never a valid first byte of a QUIC packet, whose fixed
 //! bit is set — addressed to and filtered by the relay-authenticated

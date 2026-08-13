@@ -1,5 +1,5 @@
 //! Wire framing for iroh's relay protocol (`iroh-relay` websocket frames):
-//! the client-side subset the spike speaks — handshake frames, datagram
+//! the client-side subset this endpoint speaks — handshake frames, datagram
 //! send/recv, ping/pong.
 //!
 //! One frame is one binary websocket message: a QUIC-varint frame type

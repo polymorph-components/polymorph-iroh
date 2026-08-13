@@ -2621,6 +2621,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroh-host-wasmtime"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "polymorph-webcrypto-wasmtime",
+ "tokio",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-webrtc-datachannels",
+ "wasmtime-websocket",
+]
+
+[[package]]
 name = "iroh-metrics"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2699,37 +2713,6 @@ dependencies = [
  "url",
  "webpki-roots",
  "ws_stream_wasm",
-]
-
-[[package]]
-name = "iroh-spike-guest"
-version = "0.0.1"
-dependencies = [
- "bytes",
- "futures",
- "getrandom 0.4.3",
- "hex",
- "iroh-endpoint-core",
- "noq-proto",
- "polymorph-tls-quic",
- "rustls",
- "serde",
- "serde_json",
- "wit-bindgen 0.59.0",
-]
-
-[[package]]
-name = "iroh-spike-host-wasmtime"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "env_logger",
- "polymorph-webcrypto-wasmtime",
- "tokio",
- "wasmtime",
- "wasmtime-wasi",
- "wasmtime-webrtc-datachannels",
- "wasmtime-websocket",
 ]
 
 [[package]]

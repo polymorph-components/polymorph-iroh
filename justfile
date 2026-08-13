@@ -15,13 +15,13 @@ setup:
 
 # Build every guest component and compose the endpoint demo.
 build-components:
-    cargo build -p iroh-spike-guest -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2 --release
+    cargo build -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2 --release
     mkdir -p target/components
     wac plug target/wasm32-wasip2/release/iroh_endpoint_demo.wasm --plug target/wasm32-wasip2/release/iroh_endpoint.wasm -o target/components/iroh-demo.wasm
 
 # Build the Wasmtime host binaries and the native interop peer.
 build-hosts:
-    cargo build -p iroh-spike-host-wasmtime -p iroh-peer --profile host
+    cargo build -p iroh-host-wasmtime -p iroh-peer --profile host
 
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
@@ -31,7 +31,7 @@ build: build-components build-hosts
 
 # Native tests: the crypto/framing known answers.
 test:
-    cargo test -p iroh-endpoint-core -p iroh-spike-guest
+    cargo test -p iroh-endpoint-core
 
 fmt-check:
     cargo fmt --all --check
@@ -39,12 +39,11 @@ fmt-check:
 clippy:
     cargo clippy --all-targets
     cargo clippy -p iroh-peer --all-targets
-    cargo clippy -p iroh-spike-guest -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2
+    cargo clippy -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2
 
 validate-wit:
     wasm-tools component wit wit/ > /dev/null
     wasm-tools component wit core/wit/ > /dev/null
-    wasm-tools component wit guest/wit/ > /dev/null
     wasm-tools component wit endpoint-demo/wit/ > /dev/null
     wasm-tools component wit experiments/exec-model/wit/ > /dev/null
 

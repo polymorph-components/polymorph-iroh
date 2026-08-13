@@ -1,5 +1,5 @@
-//! The shared endpoint core: everything both the spike demo guest and the
-//! endpoint component build on — the webcrypto-held identity, the
+//! The shared endpoint core: everything the endpoint component builds
+//! on — the webcrypto-held identity, the
 //! raw-public-key TLS configuration over the `polymorph:tls` sibling's
 //! profile, the iroh relay wire framing, and the relay client over
 //! `polymorph:websocket`.

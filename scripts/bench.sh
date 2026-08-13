@@ -12,21 +12,19 @@ cd "$(dirname "$0")/.."
 #
 # Time ceilings are deliberately loose: they catch order-of-magnitude
 # regressions (a lost first flight, a stalled pump) without flaking on
-# shared CI runners. The event-driven-pump claim (issue #42) is asserted
-# separately, as a bound on the spike-to-endpoint handshake delta:
-# both rows ride the same wire, relay, and run, so the delta cancels
-# runner noise that absolute ceilings must tolerate.
+# shared CI runners. The bulk rows are the sharper instrument — the
+# event-driven pump (issue #42) moved them 3-5x — since throughput
+# tolerates runner noise far better than millisecond handshakes do.
+# (A same-run handshake delta against the spike demo asserted that
+# claim directly until the spike retired; see issue #4.)
 
 HANDSHAKE_CEILING_MS=250
 ROUNDTRIP_CEILING_MS=250
-POLLING_TAX_CEILING_MS=10
 BULK_FLOOR_MBPS=1.0
 
 RELAY_PORT=3341
 RELAY_URL="http://127.0.0.1:${RELAY_PORT}"
-SPIKE_WASM=target/wasm32-wasip2/release/iroh_spike_guest.wasm
 COMPOSED_WASM=target/components/iroh-demo.wasm
-HOST=target/host/iroh-spike-host
 EHOST=target/host/endpoint-demo
 LOGDIR=$(mktemp -d)
 OUTDIR=target/bench
@@ -160,31 +158,11 @@ bench_bulk() {
 }
 
 # --- latency rows ----------------------------------------------------------
-#
-# The spike (single-task, event-driven pump) is the baseline the
-# composed endpoint is compared against: the handshake delta between
-# spike-relay and endpoint-relay is the price of the endpoint's
-# resource surface (export-call tasks woken by the pump), asserted
-# below against POLLING_TAX_CEILING_MS so the bounded-polling tax
-# retired by issue #42 cannot quietly return.
-
-bench_latency spike-relay-wasmtime "$LATENCY_ITERS" \
-    timeout 120 "$HOST" "$SPIKE_WASM" --role server --server "$RELAY_URL" --transport relay -- \
-    timeout 120 "$HOST" "$SPIKE_WASM" --role client --server "$RELAY_URL" --transport relay \
-        --message bench --peer
-SPIKE_RELAY_HS=$LAST_HANDSHAKE_MS
 
 bench_latency endpoint-relay-wasmtime "$LATENCY_ITERS" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" -- \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role client --relay "$RELAY_URL" \
         --message bench --peer
-
-if [ -n "$SPIKE_RELAY_HS" ] && [ -n "$LAST_HANDSHAKE_MS" ]; then
-    TAX=$((LAST_HANDSHAKE_MS - SPIKE_RELAY_HS))
-    emit endpoint-relay-wasmtime handshake_tax_ms "$TAX"
-    [ "$TAX" -le "$POLLING_TAX_CEILING_MS" ] ||
-        fail "endpoint-relay handshake ${LAST_HANDSHAKE_MS}ms exceeds spike ${SPIKE_RELAY_HS}ms by ${TAX}ms > ${POLLING_TAX_CEILING_MS}ms"
-fi
 
 bench_latency endpoint-udp-wasmtime "$LATENCY_ITERS" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \
