@@ -23,9 +23,14 @@ build-components:
 # interop peer. The exec-model probe driver is deliberately NOT here:
 # it carries its own bindgen world (~45% of this build) and only the
 # `probes` recipe needs it.
+#
+# One cargo invocation, not one per package: cargo unifies features
+# across the packages selected in a single invocation, and the feature
+# set feeds every unit hash — split invocations produce a different
+# artifact universe for ~260 shared dependencies, so a CI cache saved
+# by one shape misses entirely under the other.
 build-hosts:
-    cargo build -p iroh-host-wasmtime --bin endpoint-demo --profile host
-    cargo build -p iroh-peer --profile host
+    cargo build -p iroh-host-wasmtime -p iroh-peer --bin endpoint-demo --bin iroh-peer --profile host
 
 # Build the stock upstream relay server (used by the matrix and demos).
 relay-build:
