@@ -96,6 +96,18 @@ const ACCEPT_BACKLOG: usize = 16;
 /// mosh need.
 const MTU_CEILING: u16 = 4096;
 
+/// The keep-alive cadence on every connection: after this long with no
+/// ack-eliciting traffic, noq sends a PING, so noq's default 30s idle
+/// timeout — six missed heartbeats — fires only on real connectivity
+/// loss, never on application silence (issue #70). Matches upstream
+/// iroh's `HEARTBEAT_INTERVAL`. Upstream's companion per-path settings
+/// (path keep-alive, 15s path idle) are deliberately not mirrored:
+/// upstream sets them alongside multipath enablement, while this
+/// endpoint never negotiates multipath — one path per connection,
+/// wire moves are route flips — and a 15s idle on that one path would
+/// undercut the 30s upstream itself gives relay-carried paths.
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(5);
+
 /// The transport profile shared by every wire: a 1200-byte floor with
 /// per-path MTU discovery bounded by `MTU_CEILING`. Discovery is what
 /// differentiates the wires — no per-path configuration exists in noq.
@@ -109,6 +121,7 @@ const MTU_CEILING: u16 = 4096;
 /// batching stays disabled — one datagram per transmit.
 fn transport_config() -> Arc<TransportConfig> {
     let mut config = TransportConfig::default();
+    config.keep_alive_interval(Some(KEEP_ALIVE_INTERVAL));
     config.initial_mtu(1200);
     let mut mtud = MtuDiscoveryConfig::default();
     mtud.upper_bound(MTU_CEILING);
