@@ -55,17 +55,19 @@ jobs:
         # every in-repo crate recompiles however good the cache is.
         run: ./scripts/restore-mtimes.py . .deps/*
 
-      - name: Cache cargo
+      - name: Cache the cargo home
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
-          # Keep the artifacts of crates that live in the repository —
-          # ours and the pinned checkouts' — which the action drops by
-          # default. They are the expensive units left: the two host
-          # binaries and their LTO links, and the upstream relay. This
-          # only pays off with the mtime step above; without it cargo
-          # rejects every restored in-repo artifact on sight.
-          cache-workspace-crates: true
+          # The build directories are cached below instead. This action
+          # saves them only after deleting every package that lives in the
+          # repository — which is every crate the gate spends its time on,
+          # ours and the pinned checkouts' — and even for the packages it
+          # keeps it drops artifacts whose file name does not end in a
+          # build hash (cargo emits some, e.g. deps/libiroh_relay.rlib).
+          # A missing output makes cargo rebuild the unit and everything
+          # above it, so what survived rebuilt anyway.
+          cache-targets: false
           # The action keys on workspace-MEMBER manifests and lockfiles;
           # the virtual workspace ROOT manifests are never read. But the
           # root is where cargo requires [profile.*] to live (and where
@@ -75,17 +77,6 @@ jobs:
           # "up-to-date", discarding everything the change forced it to
           # build, on every run (how #63's target/host tree recompiled
           # cold each time). Hash the roots into the key ourselves.
-          #
-          # The justfiles are in the key for the same reason: the gate's
-          # cargo invocations live there, and invocation shape (which
-          # packages are selected together) feeds feature unification and
-          # thus every unit hash. A shape change with an unrotated key
-          # leaves every run full-matching a cache whose artifacts no
-          # longer match any unit the gate builds (how #73's split
-          # build-hosts recompiled ~360 host-profile crates per run). The
-          # workflow joins them because it decides what the cache holds:
-          # a save skipped on an exact-key hit would otherwise pin the
-          # contents chosen by a superseded configuration.
           key: gate-inputs-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
@@ -101,5 +92,32 @@ jobs:
           # branches don't churn the cache entries every run depends on.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Restore the build directories
+        id: build-dirs
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            target
+            .deps/iroh/target
+          # Everything that invalidates artifacts wholesale is in the key:
+          # the toolchain, the profiles, the resolved dependency versions,
+          # and the gate's cargo invocations. A key that misses still
+          # restores the newest entry under the prefix, so cargo rebuilds
+          # what changed instead of everything.
+          key: build-dirs-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', '.deps/iroh/Cargo.toml', '.deps/iroh/Cargo.lock', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
+          restore-keys: build-dirs-
+
       - name: Run the gate
         run: just gha::checks
+
+      - name: Save the build directories
+        # Only on main, and only when the restore did not already hold this
+        # key: a green gate is the evidence that these artifacts are the
+        # ones the gate wants.
+        if: github.ref == 'refs/heads/main' && steps.build-dirs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            target
+            .deps/iroh/target
+          key: ${{ steps.build-dirs.outputs.cache-primary-key }}
