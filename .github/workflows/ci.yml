@@ -19,7 +19,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout code
+        # Full history: scripts/restore-mtimes.py dates each file by the
+        # commit that last touched it, and a depth-1 checkout knows only
+        # the tip commit — it would date every file alike, defeating the
+        # freshness the step exists to restore.
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         # The toolchain version and wasm target are pinned in
@@ -41,10 +47,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Date sources by their last commit
+        # Cargo decides a path dependency is stale when its sources are
+        # newer than its artifact, and a checkout (ours) or a clone
+        # (setup.sh's) stamps every file with the current time — so
+        # restored artifacts always lose to freshly written sources, and
+        # every in-repo crate recompiles however good the cache is.
+        run: ./scripts/restore-mtimes.py . .deps/*
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          # Keep the artifacts of crates that live in the repository —
+          # ours and the pinned checkouts' — which the action drops by
+          # default. They are the expensive units left: the two host
+          # binaries and their LTO links, and the upstream relay. This
+          # only pays off with the mtime step above; without it cargo
+          # rejects every restored in-repo artifact on sight.
+          cache-workspace-crates: true
           # The action keys on workspace-MEMBER manifests and lockfiles;
           # the virtual workspace ROOT manifests are never read. But the
           # root is where cargo requires [profile.*] to live (and where
@@ -61,8 +82,11 @@ jobs:
           # thus every unit hash. A shape change with an unrotated key
           # leaves every run full-matching a cache whose artifacts no
           # longer match any unit the gate builds (how #73's split
-          # build-hosts recompiled ~360 host-profile crates per run).
-          key: gate-inputs-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml', 'justfile', '.github/justfile') }}
+          # build-hosts recompiled ~360 host-profile crates per run). The
+          # workflow joins them because it decides what the cache holds:
+          # a save skipped on an exact-key hit would otherwise pin the
+          # contents chosen by a superseded configuration.
+          key: gate-inputs-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
           # them back to whatever versions main's cache holds. Excluding
