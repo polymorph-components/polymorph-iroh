@@ -16,7 +16,8 @@
 // `wasi:sockets` calls); a direct-path UDP leg would add it.
 //
 // ---------------------------------------------------------------------------
-// Why scenarios 2-4 retry: a guest-side RefCell borrow hazard.
+// Why the scenarios that run handshakes retry: a guest-side RefCell borrow
+// hazard.
 //
 // `endpoint/src/endpoint_impl.rs` states as an invariant that "the `RefCell`
 // borrows never cross an await". One path does:
@@ -61,6 +62,7 @@ import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
 import type {
   CloseInfo,
   Connection,
+  ConnectionState,
   Endpoint,
   PathKind,
   RecvStream,
@@ -90,6 +92,13 @@ const CLOSE_REASON = "demo done";
 // implementation's 4096-byte packet ceiling minus QUIC overhead lands
 // a little above this.
 const DATAGRAM_CEILING = 3900;
+
+// How long the idle-survival scenario holds a quiet connection open
+// (issue #70). noq's max-idle-timeout defaults to 30s on both sides and
+// an idle application elicits no packet, so only the guest's keep-alive
+// (endpoint_impl.rs `KEEP_ALIVE_INTERVAL`) carries the connection past
+// this hold. Real wall time — the exam has no virtual clock.
+const IDLE_HOLD_MS = 35_000;
 
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
@@ -380,6 +389,70 @@ async function readOutcome(recv: RecvStream): Promise<string> {
   }
 }
 
+// --- the idle-survival probe (issue #70) -------------------------------------
+
+interface IdleReport {
+  readonly clientState: ConnectionState;
+  readonly serverState: ConnectionState;
+  /** What the post-idle echo read back; "" when the hold already failed. */
+  readonly echoed: string;
+  readonly path: PathKind;
+  readonly clientCloseInfo: CloseInfo | undefined;
+  readonly serverCloseInfo: CloseInfo | undefined;
+}
+
+/**
+ * One idle-survival probe: dial, prove liveness, go completely quiet for
+ * `IDLE_HOLD_MS` — no export call in flight, so the guests' pumps alone
+ * must generate the keep-alives (the issue #70 shape) — then prove the
+ * connection still works and close it cleanly. A dead connection comes
+ * back as a report whose states/echo fail the scenario's checks; only
+ * host-side noise throws.
+ */
+async function idleProbeOnce(relay: Relay): Promise<IdleReport> {
+  const server = await newEndpointInstance({ label: "idle-server" });
+  const client = await newEndpointInstance({ label: "idle-client" });
+  const bindOptions = { alpns: [ALPN], relayUrl: relay.url, webrtc: false };
+  const sep = await deadline(bindEndpoint(server, bindOptions), 30_000, "server bind");
+  const cep = await deadline(bindEndpoint(client, bindOptions), 30_000, "client bind");
+  const serverId = await sep.id();
+  const conn = await deadline(
+    cep.connect({ endpointId: serverId, addrs: [{ kind: "relay", value: relay.url }] }, ALPN),
+    60_000,
+    "connect",
+  );
+  const sconn = await deadline(sep.accept(), 60_000, "accept");
+  await echoRoundtrip(conn, sconn, "pre-idle echo");
+
+  await settle(IDLE_HOLD_MS);
+
+  const clientState = await conn.state();
+  const serverState = await sconn.state();
+  const alive = clientState === "open" && serverState === "open";
+  const echoed = alive ? await echoRoundtrip(conn, sconn, "post-idle echo") : "";
+  const path = await conn.path();
+
+  await conn.close(CLOSE_CODE, CLOSE_REASON);
+  const clientCloseInfo = await deadline(conn.waitClosed(), 30_000, "client wait-closed");
+  const serverCloseInfo = await deadline(sconn.waitClosed(), 30_000, "server wait-closed");
+  await sep.close();
+  await cep.close();
+  return { clientState, serverState, echoed, path, clientCloseInfo, serverCloseInfo };
+}
+
+/** One echo round-trip on fresh streams: the client writes `MESSAGE`, the
+ * server echoes it uppercased; returns what the client read back. */
+async function echoRoundtrip(conn: Connection, sconn: Connection, what: string): Promise<string> {
+  const [csend, crecv] = await deadline(conn.openBi(), 30_000, `${what}: open-bi`);
+  await csend.write(utf8.encode(MESSAGE));
+  await csend.finish();
+  const [ssend, srecv] = await deadline(sconn.acceptBi(), 30_000, `${what}: accept-bi`);
+  const got = await deadline(readAll(srecv), 30_000, `${what}: server read`);
+  await ssend.write(utf8.encode(got.toUpperCase()));
+  await ssend.finish();
+  return await deadline(readAll(crecv), 30_000, `${what}: client read echo`);
+}
+
 async function main(): Promise<number> {
   installPanicWatchdog();
   console.log("iroh endpoint exam (deltic / stock Deno)");
@@ -643,9 +716,61 @@ async function main(): Promise<number> {
     });
 
     // -- 6 -------------------------------------------------------------------
+    await scenario(
+      6,
+      "idle survival: a quiet connection outlives the 30s idle timeout",
+      async (v) => {
+        let r: IdleReport | undefined;
+        let lastError = "";
+        let panics = 0;
+        for (let attempt = 1; attempt <= ECHO_ATTEMPTS && !r; attempt++) {
+          takeGuestPanics();
+          try {
+            r = await idleProbeOnce(relay);
+            await settle();
+            panics += takeGuestPanics().length;
+            if (attempt > 1 || panics > 0) {
+              v.notes.push(
+                `completed on attempt ${attempt}/${ECHO_ATTEMPTS}; ` +
+                  `${panics} guest panic(s) (RefCell borrow hazard)`,
+              );
+            }
+          } catch (err) {
+            lastError = describeError(err);
+            panics += takeGuestPanics().length;
+            console.log(`  attempt ${attempt}/${ECHO_ATTEMPTS} failed: ${lastError}`);
+            await settle(100);
+          }
+        }
+        if (!r) throw new Error(`no attempt completed; last: ${lastError}`);
+        check(
+          v,
+          r.clientState === "open" && r.serverState === "open",
+          `both connections outlived ${IDLE_HOLD_MS} ms of silence ` +
+            `(client ${r.clientState}, server ${r.serverState})`,
+        );
+        check(v, r.echoed === MESSAGE.toUpperCase(), "a post-idle echo round-trip completed");
+        check(v, r.path === "relay", "the idle window rode the relay wire");
+        check(v, r.clientCloseInfo === undefined, "the closing side's wait-closed reports none");
+        check(
+          v,
+          r.serverCloseInfo !== undefined && r.serverCloseInfo.code === CLOSE_CODE &&
+            r.serverCloseInfo.reason === CLOSE_REASON,
+          `the server read the client's application close after the idle window: ` +
+            (r.serverCloseInfo
+              ? `(${r.serverCloseInfo.code}, ${JSON.stringify(r.serverCloseInfo.reason)})`
+              : "none"),
+        );
+        v.detail = `idle ${
+          (IDLE_HOLD_MS / 1000).toFixed(0)
+        } s on the relay path, then a clean echo and close`;
+      },
+    );
+
+    // -- 7 -------------------------------------------------------------------
     // Last by necessity: this scenario stops the relay every later
     // scenario would need.
-    await scenario(6, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(7, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),
