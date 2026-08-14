@@ -141,10 +141,13 @@ pub(crate) type Shared = Rc<RefCell<State>>;
 pub(crate) struct State {
     noq: NoqEndpoint,
     conns: HashMap<ConnectionHandle, ConnEntry>,
+    /// Source of [`ConnEntry::epoch`] stamps. Never reused, unlike the
+    /// connection handles the entries are keyed by.
+    next_conn_epoch: u64,
     peer_to_addr: HashMap<[u8; 32], SocketAddr>,
     addr_to_peer: HashMap<SocketAddr, [u8; 32]>,
     next_host: u32,
-    accept_queue: VecDeque<ConnectionHandle>,
+    accept_queue: VecDeque<(ConnectionHandle, u64)>,
     relay_outbound: VecDeque<(u32, [u8; 32], Vec<u8>)>,
     udp_outbound: VecDeque<(SocketAddr, Vec<u8>)>,
     /// Transmits bound for WebRTC channels, keyed by channel id.
@@ -224,6 +227,16 @@ struct ChannelEntry {
 
 struct ConnEntry {
     conn: NoqConnection,
+    /// Which occupancy of the handle's slot this entry is. A
+    /// `ConnectionHandle` is a slab slot noq reuses once a connection
+    /// is fully drained, so a resource that outlives its connection
+    /// holds a handle that may name a STRANGER by the time it acts
+    /// (its drop-implied reset would land on the slot's next
+    /// occupant). Every resource is stamped with the epoch it was
+    /// minted under and checks it on every lookup ([`entry_for`]);
+    /// pump-side lookups (noq events, datagram dispatch) speak of the
+    /// current occupant by construction and stay unstamped.
+    epoch: u64,
     /// The identity this connection must authenticate as, when one is
     /// known up front: the dialed identity on the client side, the
     /// relay-authenticated datagram source on relay-accepted connections.
@@ -246,9 +259,15 @@ struct ConnEntry {
 }
 
 impl ConnEntry {
-    fn new(conn: NoqConnection, expected_peer: Option<[u8; 32]>, accepted_side: bool) -> Self {
+    fn new(
+        conn: NoqConnection,
+        expected_peer: Option<[u8; 32]>,
+        accepted_side: bool,
+        epoch: u64,
+    ) -> Self {
         Self {
             conn,
+            epoch,
             expected_peer,
             peer: None,
             accepted_side,
@@ -268,6 +287,7 @@ impl State {
         Self {
             noq,
             conns: HashMap::new(),
+            next_conn_epoch: 0,
             peer_to_addr: HashMap::new(),
             addr_to_peer: HashMap::new(),
             next_host: 0,
@@ -578,8 +598,10 @@ impl State {
                 buf.clear();
                 match self.noq.accept(incoming, now, &mut buf, None) {
                     Ok((handle, conn)) => {
+                        let epoch = self.next_conn_epoch;
+                        self.next_conn_epoch += 1;
                         self.conns
-                            .insert(handle, ConnEntry::new(conn, source, true));
+                            .insert(handle, ConnEntry::new(conn, source, true, epoch));
                     }
                     Err(err) => {
                         if let Some(transmit) = err.response {
@@ -647,11 +669,19 @@ impl State {
     }
 }
 
+/// The entry for `handle`, but only while it is still the SAME
+/// connection the caller was minted for (see [`ConnEntry::epoch`]).
+/// `None` means the caller's connection is gone, whatever now occupies
+/// the slot: methods surface it as `error.closed`, drops do nothing.
+fn entry_for(st: &mut State, handle: ConnectionHandle, epoch: u64) -> Option<&mut ConnEntry> {
+    st.conns.get_mut(&handle).filter(|e| e.epoch == epoch)
+}
+
 fn on_event(
     entry: &mut ConnEntry,
     handle: ConnectionHandle,
     event: Event,
-    accept_queue: &mut VecDeque<ConnectionHandle>,
+    accept_queue: &mut VecDeque<(ConnectionHandle, u64)>,
 ) {
     match event {
         Event::HandshakeDataReady | Event::HandshakeConfirmed => {}
@@ -681,7 +711,7 @@ fn on_event(
                     entry.peer = Some(id);
                     entry.connected = true;
                     if entry.accepted_side {
-                        accept_queue.push_back(handle);
+                        accept_queue.push_back((handle, entry.epoch));
                     }
                 }
                 // The handshake authenticated a key other than the one
@@ -1153,6 +1183,8 @@ impl Drop for EndpointRes {
 pub struct ConnectionRes {
     shared: Shared,
     handle: ConnectionHandle,
+    /// The [`ConnEntry::epoch`] this resource was minted under.
+    epoch: u64,
     /// `path-changes`' take-once claim: the family's watch convention
     /// hands the stream to the first caller only.
     watching: Cell<bool>,
@@ -1161,6 +1193,8 @@ pub struct ConnectionRes {
 pub struct SendStreamRes {
     shared: Shared,
     handle: ConnectionHandle,
+    /// The [`ConnEntry::epoch`] this resource was minted under.
+    epoch: u64,
     id: StreamId,
     /// `write-via-stream`'s one-shot claim (issue #13, finding B6):
     /// once taken, `write` and `finish` are refused.
@@ -1177,10 +1211,11 @@ pub struct SendStreamRes {
 }
 
 impl SendStreamRes {
-    fn new(shared: Shared, handle: ConnectionHandle, id: StreamId) -> Self {
+    fn new(shared: Shared, handle: ConnectionHandle, epoch: u64, id: StreamId) -> Self {
         Self {
             shared,
             handle,
+            epoch,
             id,
             streaming: Cell::new(false),
             writing: Cell::new(false),
@@ -1202,6 +1237,8 @@ impl Drop for SendStreamRes {
 pub struct RecvStreamRes {
     shared: Shared,
     handle: ConnectionHandle,
+    /// The [`ConnEntry::epoch`] this resource was minted under.
+    epoch: u64,
     id: StreamId,
     streaming: Cell<bool>,
     /// The stream's first observed terminal outcome — `Ok` at the FIN,
@@ -1217,10 +1254,11 @@ pub struct RecvStreamRes {
 }
 
 impl RecvStreamRes {
-    fn new(shared: Shared, handle: ConnectionHandle, id: StreamId) -> Self {
+    fn new(shared: Shared, handle: ConnectionHandle, epoch: u64, id: StreamId) -> Self {
         Self {
             shared,
             handle,
+            epoch,
             id,
             streaming: Cell::new(false),
             terminal: RefCell::new(None),
@@ -1258,6 +1296,7 @@ impl Drop for Unclaim<'_> {
 struct DialGuard {
     shared: Shared,
     handle: ConnectionHandle,
+    epoch: u64,
     armed: bool,
 }
 
@@ -1267,7 +1306,7 @@ impl Drop for DialGuard {
             return;
         }
         let mut st = self.shared.borrow_mut();
-        if let Some(entry) = st.conns.get_mut(&self.handle) {
+        if let Some(entry) = entry_for(&mut st, self.handle, self.epoch) {
             if entry.error.is_none() && !entry.drained {
                 entry.conn.close(
                     Instant::now(),
@@ -1548,7 +1587,7 @@ impl GuestEndpoint for EndpointRes {
         let mut config = ClientConfig::new(Arc::new(quic_tls));
         config.transport_config(transport_config());
 
-        let handle = {
+        let (handle, epoch) = {
             let mut st = self.shared.borrow_mut();
             if st.dead.is_some() || st.closed {
                 return Err(Error::Closed);
@@ -1570,8 +1609,10 @@ impl GuestEndpoint for EndpointRes {
                 .noq
                 .connect(Instant::now(), config, remote, tls::SERVER_NAME)
                 .map_err(|e| Error::ConnectFailed(e.to_string()))?;
+            let epoch = st.next_conn_epoch;
+            st.next_conn_epoch += 1;
             st.conns
-                .insert(handle, ConnEntry::new(conn, Some(peer), false));
+                .insert(handle, ConnEntry::new(conn, Some(peer), false, epoch));
             // The upgrade dance overlaps the handshake; the route flip
             // is invisible to noq (same standin address).
             if let Some(key) = upgrade_key {
@@ -1579,7 +1620,7 @@ impl GuestEndpoint for EndpointRes {
             }
             // Flush the first flight (and spawn the upgrade) now.
             st.kick_pump();
-            handle
+            (handle, epoch)
         };
 
         // The dial is closed if this call is cancelled while parked
@@ -1588,10 +1629,13 @@ impl GuestEndpoint for EndpointRes {
         let mut dial = DialGuard {
             shared: self.shared.clone(),
             handle,
+            epoch,
             armed: true,
         };
         wait_until(&self.shared, |st| {
-            let entry = st.conns.get_mut(&handle).expect("connection entry");
+            let Some(entry) = entry_for(st, handle, epoch) else {
+                return Some(Err(Error::Closed));
+            };
             if let Some(err) = &entry.error {
                 // A dial that dies before connecting failed to
                 // connect: the peer's refusal arrives as a transport
@@ -1616,14 +1660,21 @@ impl GuestEndpoint for EndpointRes {
         Ok(Connection::new(ConnectionRes {
             shared: self.shared.clone(),
             handle,
+            epoch,
             watching: Cell::new(false),
         }))
     }
 
     async fn accept(&self) -> Result<Connection, Error> {
-        let handle = wait_until(&self.shared, |st| {
-            if let Some(handle) = st.accept_queue.pop_front() {
-                return Some(Ok(handle));
+        let (handle, epoch) = wait_until(&self.shared, |st| {
+            // Skip queue entries whose connection died (or whose slot
+            // was even reused) before an acceptor claimed them: handing
+            // out the slot's NEXT occupant would deliver one connection
+            // to two acceptors.
+            while let Some((handle, epoch)) = st.accept_queue.pop_front() {
+                if entry_for(st, handle, epoch).is_some() {
+                    return Some(Ok((handle, epoch)));
+                }
             }
             if st.dead.is_some() || st.closed {
                 return Some(Err(Error::Closed));
@@ -1634,6 +1685,7 @@ impl GuestEndpoint for EndpointRes {
         Ok(Connection::new(ConnectionRes {
             shared: self.shared.clone(),
             handle,
+            epoch,
             watching: Cell::new(false),
         }))
     }
@@ -1664,8 +1716,8 @@ impl Drop for ConnectionRes {
 /// one network path: wire moves are route flips under a stable standin
 /// address (multipath is never negotiated), so the path's remote keys
 /// the route table.
-fn current_path(st: &State, handle: ConnectionHandle) -> PathKind {
-    let Some(entry) = st.conns.get(&handle) else {
+fn current_path(st: &State, handle: ConnectionHandle, epoch: u64) -> PathKind {
+    let Some(entry) = st.conns.get(&handle).filter(|e| e.epoch == epoch) else {
         return PathKind::Relay;
     };
     let Ok(path) = entry.conn.network_path(PathId::ZERO) else {
@@ -1680,17 +1732,25 @@ fn current_path(st: &State, handle: ConnectionHandle) -> PathKind {
 }
 
 impl ConnectionRes {
-    fn with_entry<R>(&self, f: impl FnOnce(&mut ConnEntry) -> R) -> R {
+    /// Run `f` on this connection's entry, or `stale()` when the
+    /// connection is gone (its slot possibly reused; see
+    /// [`ConnEntry::epoch`]).
+    fn with_entry<R>(&self, stale: impl FnOnce() -> R, f: impl FnOnce(&mut ConnEntry) -> R) -> R {
         let mut st = self.shared.borrow_mut();
-        let entry = st.conns.get_mut(&self.handle).expect("connection entry");
-        f(entry)
+        match entry_for(&mut st, self.handle, self.epoch) {
+            Some(entry) => f(entry),
+            None => stale(),
+        }
     }
 
     async fn open_stream(&self, dir: Dir) -> Result<StreamId, Error> {
         let handle = self.handle;
+        let epoch = self.epoch;
         let mut kicked_blocked = false;
         wait_until(&self.shared, move |st| {
-            let entry = st.conns.get_mut(&handle).expect("connection entry");
+            let Some(entry) = entry_for(st, handle, epoch) else {
+                return Some(Err(Error::Closed));
+            };
             if let Some(err) = &entry.error {
                 return Some(Err(err.clone()));
             }
@@ -1712,8 +1772,11 @@ impl ConnectionRes {
 
     async fn accept_stream(&self, dir: Dir) -> Result<StreamId, Error> {
         let handle = self.handle;
+        let epoch = self.epoch;
         wait_until(&self.shared, |st| {
-            let entry = st.conns.get_mut(&handle).expect("connection entry");
+            let Some(entry) = entry_for(st, handle, epoch) else {
+                return Some(Err(Error::Closed));
+            };
             let queue = match dir {
                 Dir::Bi => &mut entry.bi_queue,
                 Dir::Uni => &mut entry.uni_queue,
@@ -1728,36 +1791,49 @@ impl ConnectionRes {
 
     fn stream_pair(&self, id: StreamId) -> (SendStream, RecvStream) {
         (
-            SendStream::new(SendStreamRes::new(self.shared.clone(), self.handle, id)),
-            RecvStream::new(RecvStreamRes::new(self.shared.clone(), self.handle, id)),
+            SendStream::new(SendStreamRes::new(
+                self.shared.clone(),
+                self.handle,
+                self.epoch,
+                id,
+            )),
+            RecvStream::new(RecvStreamRes::new(
+                self.shared.clone(),
+                self.handle,
+                self.epoch,
+                id,
+            )),
         )
     }
 }
 
 impl GuestConnection for ConnectionRes {
     fn peer(&self) -> Vec<u8> {
-        self.with_entry(|e| e.peer.map(|p| p.to_vec()).unwrap_or_default())
+        self.with_entry(Vec::new, |e| e.peer.map(|p| p.to_vec()).unwrap_or_default())
     }
 
     fn alpn(&self) -> Vec<u8> {
-        self.with_entry(|e| e.alpn.clone())
+        self.with_entry(Vec::new, |e| e.alpn.clone())
     }
 
     fn state(&self) -> ConnectionState {
-        self.with_entry(|e| {
-            if e.drained || e.error.is_some() {
-                ConnectionState::Closed
-            } else if e.connected {
-                ConnectionState::Open
-            } else {
-                ConnectionState::Connecting
-            }
-        })
+        self.with_entry(
+            || ConnectionState::Closed,
+            |e| {
+                if e.drained || e.error.is_some() {
+                    ConnectionState::Closed
+                } else if e.connected {
+                    ConnectionState::Open
+                } else {
+                    ConnectionState::Connecting
+                }
+            },
+        )
     }
 
     fn path(&self) -> PathKind {
         let st = self.shared.borrow();
-        current_path(&st, self.handle)
+        current_path(&st, self.handle, self.epoch)
     }
 
     fn path_changes(&self) -> StreamReader<PathKind> {
@@ -1770,15 +1846,18 @@ impl GuestConnection for ConnectionRes {
         let mut writer = writer;
         let shared = self.shared.clone();
         let handle = self.handle;
+        let epoch = self.epoch;
         wit_bindgen::spawn_local(async move {
             let mut last = None;
             loop {
                 let next = wait_until(&shared, |st| {
-                    let entry = st.conns.get(&handle).expect("connection entry");
+                    let Some(entry) = st.conns.get(&handle).filter(|e| e.epoch == epoch) else {
+                        return Some(None);
+                    };
                     if entry.drained || entry.error.is_some() {
                         return Some(None);
                     }
-                    let current = current_path(st, handle);
+                    let current = current_path(st, handle, epoch);
                     (last != Some(current)).then_some(Some(current))
                 })
                 .await;
@@ -1805,6 +1884,7 @@ impl GuestConnection for ConnectionRes {
         Ok(SendStream::new(SendStreamRes::new(
             self.shared.clone(),
             self.handle,
+            self.epoch,
             id,
         )))
     }
@@ -1819,35 +1899,39 @@ impl GuestConnection for ConnectionRes {
         Ok(RecvStream::new(RecvStreamRes::new(
             self.shared.clone(),
             self.handle,
+            self.epoch,
             id,
         )))
     }
 
     fn max_datagram_size(&self) -> Option<u32> {
-        self.with_entry(|e| e.conn.datagrams().max_size().map(|s| s as u32))
+        self.with_entry(|| None, |e| e.conn.datagrams().max_size().map(|s| s as u32))
     }
 
     fn send_datagram(&self, data: Vec<u8>) -> Result<(), Error> {
-        let result = self.with_entry(|e| {
-            if let Some(err) = &e.error {
-                return Err(err.clone());
-            }
-            // drop=true: a full send buffer discards the oldest queued
-            // datagrams (the WIT's lossy-transport ruling), so `Blocked`
-            // cannot come back.
-            e.conn
-                .datagrams()
-                .send(bytes::Bytes::from(data), true)
-                .map_err(|err| match err {
-                    noq_proto::SendDatagramError::TooLarge => {
-                        Error::InvalidArgument("datagram exceeds max-datagram-size".into())
-                    }
-                    noq_proto::SendDatagramError::UnsupportedByPeer => {
-                        Error::InvalidArgument("peer does not accept datagrams".into())
-                    }
-                    other => Error::Other(format!("send-datagram: {other}")),
-                })
-        });
+        let result = self.with_entry(
+            || Err(Error::Closed),
+            |e| {
+                if let Some(err) = &e.error {
+                    return Err(err.clone());
+                }
+                // drop=true: a full send buffer discards the oldest queued
+                // datagrams (the WIT's lossy-transport ruling), so `Blocked`
+                // cannot come back.
+                e.conn
+                    .datagrams()
+                    .send(bytes::Bytes::from(data), true)
+                    .map_err(|err| match err {
+                        noq_proto::SendDatagramError::TooLarge => {
+                            Error::InvalidArgument("datagram exceeds max-datagram-size".into())
+                        }
+                        noq_proto::SendDatagramError::UnsupportedByPeer => {
+                            Error::InvalidArgument("peer does not accept datagrams".into())
+                        }
+                        other => Error::Other(format!("send-datagram: {other}")),
+                    })
+            },
+        );
         if result.is_ok() {
             // Flush the queued datagram.
             self.shared.borrow_mut().kick_pump();
@@ -1857,8 +1941,11 @@ impl GuestConnection for ConnectionRes {
 
     async fn recv_datagram(&self) -> Result<Vec<u8>, Error> {
         let handle = self.handle;
+        let epoch = self.epoch;
         wait_until(&self.shared, |st| {
-            let entry = st.conns.get_mut(&handle).expect("connection entry");
+            let Some(entry) = entry_for(st, handle, epoch) else {
+                return Some(Err(Error::Closed));
+            };
             if let Some(bytes) = entry.conn.datagrams().recv() {
                 return Some(Ok(bytes.to_vec()));
             }
@@ -1869,7 +1956,9 @@ impl GuestConnection for ConnectionRes {
 
     fn close(&self, code: u64, reason: String) {
         let mut st = self.shared.borrow_mut();
-        let entry = st.conns.get_mut(&self.handle).expect("connection entry");
+        let Some(entry) = entry_for(&mut st, self.handle, self.epoch) else {
+            return;
+        };
         if entry.error.is_none() && !entry.drained {
             entry.conn.close(
                 Instant::now(),
@@ -1883,8 +1972,13 @@ impl GuestConnection for ConnectionRes {
 
     async fn wait_closed(&self) -> Option<CloseInfo> {
         let handle = self.handle;
+        let epoch = self.epoch;
         wait_until(&self.shared, |st| {
-            let entry = st.conns.get_mut(&handle).expect("connection entry");
+            let Some(entry) = entry_for(st, handle, epoch) else {
+                // The connection is not just closed but GONE; whatever
+                // close the peer sent went with it.
+                return Some(None);
+            };
             (entry.drained || entry.error.is_some()).then(|| entry.peer_close.clone())
         })
         .await
@@ -1895,12 +1989,15 @@ impl GuestConnection for ConnectionRes {
 async fn write_all(
     shared: &Shared,
     handle: ConnectionHandle,
+    epoch: u64,
     id: StreamId,
     bytes: Vec<u8>,
 ) -> Result<(), Error> {
     let mut offset = 0usize;
     wait_until(shared, move |st| {
-        let entry = st.conns.get_mut(&handle).expect("connection entry");
+        let Some(entry) = entry_for(st, handle, epoch) else {
+            return Some(Err(Error::Closed));
+        };
         if let Some(err) = &entry.error {
             return Some(Err(err.clone()));
         }
@@ -1939,11 +2036,14 @@ async fn write_all(
 async fn read_some(
     shared: &Shared,
     handle: ConnectionHandle,
+    epoch: u64,
     id: StreamId,
     max: u32,
 ) -> Result<Option<Vec<u8>>, Error> {
     wait_until(shared, move |st| {
-        let entry = st.conns.get_mut(&handle).expect("connection entry");
+        let Some(entry) = entry_for(st, handle, epoch) else {
+            return Some(Err(Error::Closed));
+        };
         // Cloned before the stream borrow; consulted only once the
         // stream itself has nothing more to deliver.
         let conn_failure = entry.error.clone();
@@ -1998,7 +2098,9 @@ impl SendStreamRes {
     fn do_finish(&self) -> Result<(), Error> {
         self.ended.set(true);
         let mut st = self.shared.borrow_mut();
-        let entry = st.conns.get_mut(&self.handle).expect("connection entry");
+        let Some(entry) = entry_for(&mut st, self.handle, self.epoch) else {
+            return Err(Error::Closed);
+        };
         if let Some(err) = &entry.error {
             return Err(err.clone());
         }
@@ -2023,7 +2125,7 @@ impl GuestSendStream for SendStreamRes {
             return Err(in_use("a write is already in flight on this stream"));
         }
         let _claim = Unclaim(&self.writing);
-        write_all(&self.shared, self.handle, self.id, bytes).await
+        write_all(&self.shared, self.handle, self.epoch, self.id, bytes).await
     }
 
     fn finish(&self) -> Result<(), Error> {
@@ -2040,7 +2142,12 @@ impl GuestSendStream for SendStreamRes {
     fn reset(&self, code: u64) {
         self.ended.set(true);
         let mut st = self.shared.borrow_mut();
-        let entry = st.conns.get_mut(&self.handle).expect("connection entry");
+        // A stale resource resets nothing: its connection is gone, and
+        // the handle may name the slot's next occupant, whose stream
+        // this must not touch.
+        let Some(entry) = entry_for(&mut st, self.handle, self.epoch) else {
+            return;
+        };
         let _ = entry.conn.send_stream(self.id).reset(app_code(code));
         // Flush the RESET_STREAM.
         st.kick_pump();
@@ -2059,7 +2166,7 @@ impl GuestSendStream for SendStreamRes {
         loop {
             let (result, buf) = data.read(Vec::with_capacity(16 * 1024)).await;
             if !buf.is_empty() {
-                write_all(&self.shared, self.handle, self.id, buf).await?;
+                write_all(&self.shared, self.handle, self.epoch, self.id, buf).await?;
             }
             match result {
                 wit_bindgen::StreamResult::Complete(_) => {}
@@ -2085,7 +2192,7 @@ impl GuestRecvStream for RecvStreamRes {
             return Err(in_use("a read is already in flight on this stream"));
         }
         let _claim = Unclaim(&self.reading);
-        match read_some(&self.shared, self.handle, self.id, max).await {
+        match read_some(&self.shared, self.handle, self.epoch, self.id, max).await {
             Ok(Some(bytes)) => Ok(Some(bytes)),
             Ok(None) => {
                 *self.terminal.borrow_mut() = Some(Ok(()));
@@ -2100,7 +2207,10 @@ impl GuestRecvStream for RecvStreamRes {
 
     fn stop(&self, code: u64) {
         let mut st = self.shared.borrow_mut();
-        let entry = st.conns.get_mut(&self.handle).expect("connection entry");
+        // A stale resource stops nothing (see `reset`).
+        let Some(entry) = entry_for(&mut st, self.handle, self.epoch) else {
+            return;
+        };
         let _ = entry.conn.recv_stream(self.id).stop(app_code(code));
         // Flush the STOP_SENDING.
         st.kick_pump();
@@ -2119,10 +2229,11 @@ impl GuestRecvStream for RecvStreamRes {
             wit_future::new(|| Err(other("read-via-stream ended without a report")));
         let shared = self.shared.clone();
         let handle = self.handle;
+        let epoch = self.epoch;
         let id = self.id;
         wit_bindgen::spawn_local(async move {
             let outcome = loop {
-                match read_some(&shared, handle, id, 16 * 1024).await {
+                match read_some(&shared, handle, epoch, id, 16 * 1024).await {
                     Ok(Some(bytes)) => {
                         let remaining = writer.write_all(bytes).await;
                         if !remaining.is_empty() {
