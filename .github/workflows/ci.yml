@@ -101,10 +101,11 @@ jobs:
             .deps/iroh/target
           # Everything that invalidates artifacts wholesale is in the key:
           # the toolchain, the profiles, the resolved dependency versions,
-          # and the gate's cargo invocations. A key that misses still
+          # the gate's cargo invocations, and the mtime policy the restored
+          # artifacts were judged fresh against. A key that misses still
           # restores the newest entry under the prefix, so cargo rebuilds
           # what changed instead of everything.
-          key: build-dirs-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', '.deps/iroh/Cargo.toml', '.deps/iroh/Cargo.lock', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
+          key: build-dirs-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', '.deps/iroh/Cargo.toml', '.deps/iroh/Cargo.lock', 'justfile', '.github/justfile', '.github/workflows/ci.yml', 'scripts/restore-mtimes.py') }}
           restore-keys: build-dirs-
 
       - name: Run the gate
