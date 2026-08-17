@@ -6,7 +6,7 @@
 // `iroh.Endpoint.bind(...)` driving shape over `instantiate` + the deltic
 // embedder facade.
 //
-// MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling host
+// MODULE-IDENTITY CONSTRAINT: deltic's wasi package and the sibling host
 // modules import `@deltic/runtime/embedder` by bare specifier internally;
 // this package's `deno.json` maps that specifier ONCE for the whole module
 // graph, so there is exactly one `ComponentException`/`Stream` module
@@ -15,7 +15,7 @@
 import { defaultTranslator } from "@deltic/translator";
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";
 import { instantiate, ComponentException } from "@deltic/runtime/embedder";
-import { wasiShims } from "@deltic/wasi-shims";
+import { wasi } from "@deltic/wasi";
 import { webcryptoImports } from "@polymorph/webcrypto-deltic";
 import { websocketImports } from "../../.deps/websocket/js/deltic/websocket.ts";
 import { webrtcImports } from "../../.deps/webrtc/deltic-impl/src/webrtc.ts";
@@ -112,7 +112,7 @@ export async function newEndpointInstance(
   options: EndpointInstanceOptions,
 ): Promise<EndpointInstance> {
   const artifacts = await loadArtifacts();
-  const shims = wasiShims({
+  const shims = wasi({
     cli: {
       args: [`iroh-endpoint-${options.label}`],
       env: { ...options.env },

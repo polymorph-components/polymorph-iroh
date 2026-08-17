@@ -1,6 +1,6 @@
 [package]
 name = "iroh-endpoint-core"
-version = "0.0.1"
+version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 description = "Shared endpoint core: the webcrypto-held identity, RPK TLS configs over the polymorph:tls profile, and relay wire framing"

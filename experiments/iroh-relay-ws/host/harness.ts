@@ -6,7 +6,7 @@
 // globals only.
 //
 // MODULE-IDENTITY CONSTRAINT (host-deltic/README.md "Module identity"):
-// deltic's wasi-shims and this package import `@deltic/runtime/embedder`
+// deltic's wasi package and this package import `@deltic/runtime/embedder`
 // by bare specifier; the `deno.json` next to this file maps that
 // specifier once for the whole module graph, so there is exactly one
 // `ComponentException` module instance and `instanceof` holds across every
@@ -15,7 +15,8 @@
 import type { ComponentArtifacts } from "@deltic/runtime/embedder";
 import { artifactsFromEnvelope, instantiate } from "@deltic/runtime/embedder";
 import type { Translator } from "@deltic/runtime/shim";
-import { OutputStream, wasiShims } from "@deltic/wasi-shims";
+import { wasi } from "@deltic/wasi";
+import { OutputStream } from "@deltic/wasi/io";
 import { syntheticNetImports } from "./sockets.ts";
 
 /** Reconstitute build-time-translated artifacts (embedder-api A4). */
@@ -49,7 +50,7 @@ export interface GuestOptions {
 }
 
 /**
- * The full import record for the spike guests: deltic's wasi-shims
+ * The full import record for the spike guests: deltic's wasi()
  * baseline (whose A5 parking kernel serves poll/clock suspension), the
  * synthetic network fragment (sockets.ts), and stdio routed to the
  * console line-buffered.
@@ -58,7 +59,7 @@ export function guestImports(options: GuestOptions): Record<string, unknown> {
   const stdout = new OutputStream(lineSink("guest-out", console.log));
   const stderr = new OutputStream(lineSink("guest-err", console.error));
   return {
-    ...wasiShims({ cli: { args: options.args, env: options.env } }),
+    ...wasi({ cli: { args: options.args, env: options.env } }),
     ...syntheticNetImports(),
     "wasi:cli/stdout@0.2": { getStdout: (): OutputStream => stdout },
     "wasi:cli/stderr@0.2": { getStderr: (): OutputStream => stderr },
@@ -71,7 +72,7 @@ export function guestImports(options: GuestOptions): Record<string, unknown> {
  * `artifacts` is anything `instantiate` accepts (embedder-api A3): the
  * translated `ComponentArtifacts`, or `{ componentBytes, translator }`
  * with `@deltic/translator`'s instance for in-process translation. jspi
- * mode is selected by wasi-shims' own `suspending()` markers (the A5
+ * mode is selected by the wasi package's own `suspending()` markers (the A5
  * kernel); no explicit option is needed.
  */
 export async function runGuest(

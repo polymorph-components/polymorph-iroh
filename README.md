@@ -14,6 +14,14 @@ Status: **proposal**. This README records the design research and the
 rulings it produced; open questions are tracked in the
 [issues](../../issues).
 
+## Releases
+
+Everything here is **unstable** (0.x), but [releases](../../releases) are
+**caret-honest**: within a minor line they stay backward-compatible, and
+anything breaking bumps the minor. Consumption is pinned at a release's
+commit — sibling checkouts and vendored WIT at pinned release commits,
+the release-pinned deltic/JSR graph — and bumped deliberately.
+
 ## What iroh is, layer by layer
 
 Iroh's stack, per its own documentation, is a set of small layers with a

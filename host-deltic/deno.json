@@ -1,14 +1,15 @@
 {
-  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi-shims and the sibling deltic host modules (.deps/{websocket,webrtc,webcrypto}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof ComponentException` holds across every boundary. deltic arrives as exactly-pinned JSR prereleases (0.1.0-pre.g<shorthash> names one upstream commit; @deltic/translator ships the translator wasm for the SAME commit, so the plan-format coupling is self-consistent per graph); deno.lock carries integrity, enforced with --frozen. The version matches experiments/iroh-relay-ws/host/deno.json by repo convention (see README.md, 'The pin'; exam-deltic asserts it). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @deltic prereleases resolve. The npm mappings serve the webrtc module's bare specifiers, which resolve against this config as the entry import map.",
+  "//": "MODULE-IDENTITY CONSTRAINT: deltic's wasi package and the sibling deltic host modules (.deps/{websocket,webrtc,webcrypto}) import @deltic/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof ComponentException` holds across every boundary. deltic arrives as exact-pinned JSR releases (caret-honest upstream: within a minor line releases stay compatible, breaking bumps the minor; per-commit `<next>-pre.g<hash>` prereleases exist between releases — pin exactly; @deltic/translator ships the translator wasm for the SAME commit, so the plan-format coupling is self-consistent per graph); deno.lock carries integrity, enforced with --frozen. The version matches experiments/iroh-relay-ws/host/deno.json by repo convention (see README.md, 'The pin'; exam-deltic asserts it). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @deltic publishes resolve. The npm mappings serve the webrtc module's bare specifiers, which resolve against this config as the entry import map.",
   "nodeModulesDir": "auto",
   "minimumDependencyAge": {
     "age": "P1D",
     "exclude": ["jsr:@deltic/*"]
   },
   "imports": {
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.ga2f84a5/embedder",
-    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.ga2f84a5",
-    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.ga2f84a5",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0/embedder",
+    "@deltic/translator": "jsr:@deltic/translator@0.1.0",
+    "@deltic/wasi": "jsr:@deltic/wasi@0.1.0",
+    "@deltic/wasi/io": "jsr:@deltic/wasi@0.1.0/io",
     "@polymorph/webcrypto-deltic": "../.deps/webcrypto/js/deltic/src/mod.ts",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
