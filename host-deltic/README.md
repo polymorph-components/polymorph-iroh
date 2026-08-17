@@ -10,15 +10,16 @@ alongside this exam until it retired in favor of this host (see git
 history); this is now the repository's only JS host.
 
 The sibling repositories' own deltic host modules supply the non-WASI
-imports, from the same pinned checkouts `scripts/setup.sh` maintains:
+imports, consumed from JSR by caret constraint (the lockfile pins the
+resolved versions):
 
 | Import | Module |
 | --- | --- |
-| `polymorph:websocket/connections` | `.deps/websocket/js/deltic/websocket.ts` |
-| `polymorph:webrtc-datachannels/connections` | `.deps/webrtc/deltic-impl/src/webrtc.ts` |
-| `polymorph:webcrypto/*` | `.deps/webcrypto/js/deltic/src/mod.ts` |
+| `polymorph:websocket/connections` | `jsr:@polymorph/websocket` |
+| `polymorph:webrtc-datachannels/connections` | `jsr:@polymorph/webrtc-datachannels` |
+| `polymorph:webcrypto/*` | `jsr:@polymorph/webcrypto` |
 | `wasi:sockets/types` | `src/sockets.ts` — fail-on-call stubs (the browser profile; see its header) |
-| everything WASI | deltic's `wasi-shims` at the pinned release |
+| everything WASI | deltic's `@deltic/wasi` package |
 
 ## The exam
 
@@ -50,51 +51,40 @@ borrow that crosses the `block_on`(webcrypto sign) yield point, so a
 parked poller can trap the guest mid-handshake (`RefCell already
 borrowed`); panic counts are reported per attempt. The hazard is the
 guest's and is latent on every host.
-
 ## The pin
 
-deltic arrives as exactly-pinned JSR prereleases:
-`jsr:@deltic/{runtime,wasi-shims,translator}@0.1.0-pre.g<shorthash>`,
-where the short hash names one upstream commit (the same hash as the
-corresponding GitHub `pre-<shorthash>` release). `@deltic/translator`
-ships the translator wasm for that same commit, so the plan-format
-coupling between runtime and translator is self-consistent inside each
-graph by construction — there is no separate asset pin and no fetch
-step.
+deltic and the sibling host modules arrive from JSR under caret
+constraints on one minor line (`jsr:@deltic/*@^0.1.0`,
+`jsr:@polymorph/*@^0.1.0`); `deno.lock` pins the resolved versions and
+carries integrity, enforced with `--frozen`. `@deltic/translator` ships
+the translator wasm for the same commit as the runtime, so the
+plan-format coupling between runtime and translator is self-consistent
+inside each graph by construction — there is no separate asset pin and
+no fetch step. `minimumDependencyAge` exempts `jsr:@deltic/*` and
+`jsr:@polymorph/*` from Deno's default 24-hour supply-chain gate so
+same-day releases resolve; everything else keeps the default.
+`experiments/iroh-relay-ws/host/deno.json` (the upstream-iroh spikes'
+shared config) exact-pins the same deltic packages; the `exam-deltic`
+recipe asserts both `deno.lock`s resolve to one deltic version.
 
-- `deno.json` — the versions in the import map; `deno.lock` carries
-  integrity, enforced with `--frozen`. The sibling host modules map to
-  their `.deps` checkouts (pinned by `scripts/setup.sh`), and the npm
-  mappings (`node-datachannel`, `werift`) serve the webrtc module's
-  bare specifiers, which resolve against this config as the entry
-  import map. `minimumDependencyAge` exempts `jsr:@deltic/*` from
-  Deno's default 24-hour supply-chain gate so same-day prereleases
-  resolve; everything else keeps the default.
-- `experiments/iroh-relay-ws/host/deno.json` — the upstream-iroh
-  spikes' shared config, same versions by repo convention; the
-  `exam-deltic` recipe asserts the two configs agree before running.
-
-To bump: update the versions in both configs, delete both `deno.lock`
-files, re-run `just deltic-setup` and
+To bump: adjust the constraints (a new minor line) or just delete the
+`deno.lock` files (within the line), re-run `just deltic-setup` and
 `deno install --allow-scripts=npm:node-datachannel` in
 `experiments/iroh-relay-ws/host/` to regenerate them, and commit the
 diff.
 
 ## Module identity
 
-deltic's wasi-shims and the sibling deltic host modules import
-`@deltic/runtime/embedder` by bare specifier internally. This config's
-import map does NOT govern the sibling checkouts' files: a `.deps`
-module under its own package-shaped `deno.json` (name + exports)
-resolves its bare specifiers against THAT config — before the `.deps`
-pins converged on JSR-consuming sibling revisions, the webcrypto module
-silently rode a raw pinned-tag embedder while everything else used the
-JSR one, and `instanceof ComponentException` did not hold across its boundary.
-Identity therefore rests on every config in the graph — this one and
-each pinned sibling's — naming the SAME `jsr:@deltic/*` version, so the
-resolver dedupes to one `ComponentException`/`Stream` module instance. Two gates
-in `just exam-deltic` keep it true: the pin grep (this repo's configs
-agree) and `scripts/deltic-identity-gate.ts` (the RESOLVED run-endpoint
-graph carries exactly one `@deltic/runtime` and no raw URLs). Bumping a
-`.deps` pin to a sibling revision that consumes a different deltic
-version trips the gate; converge the versions instead.
+deltic's wasi package and the sibling host modules import
+`@deltic/runtime/embedder` by bare specifier internally, each resolved
+through its own package manifest. Identity rests on every manifest in
+the graph carrying a constraint the resolver can satisfy with ONE
+`@deltic/runtime` version, so it dedupes to one
+`ComponentException`/`Stream` module instance — caret constraints on
+one minor line guarantee that; an exact pin outside every other
+manifest's range (or a raw-URL embedder module) splits the graph, and
+`instanceof ComponentException` silently stops holding across that
+boundary. Two gates in `just exam-deltic` keep it true: the lock check
+(this repo's `deno.lock`s resolve to one deltic version) and
+`scripts/deltic-identity-gate.ts` (the RESOLVED run-endpoint graph
+carries exactly one `@deltic/runtime` and no raw URLs).
