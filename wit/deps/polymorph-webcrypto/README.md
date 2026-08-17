@@ -204,12 +204,20 @@ pair, which is a behavioral change for the producing implementation but
 never a type change.
 
 **`extension(extension-error)` carries named conditions outside the closed
-set.** The closed cases are the conditions the *generic kinds'* contracts
-name — universal across operation families; `extension` carries algorithm-
-and feature-specific conditions, identified by the (`origin`, `name`) pair
-and defined by the interface that produces them (the first is
-`sha1-checked`'s `("polymorph:webcrypto", "collision-detected")`). The record's
-fields have two fixed roles:
+set — all of them, from here on.** The closed set is frozen: it is the set
+of conditions the package's contracts named when the `error` variant was
+designed — a historical artifact, not a tier of generality — and it never
+grows again, because a new closed case is a semver-major change (the
+variant sits in return position, where variant growth has no compatible
+path). Every named condition since, kind-level and algorithm-level alike,
+is an extension pair under `"polymorph:webcrypto"`, identified by the
+(`origin`, `name`) pair and defined by the interface whose contract says
+when it occurs — `sha1-checked`'s `("polymorph:webcrypto",
+"collision-detected")`, `public-encryption`'s kind-level
+`("polymorph:webcrypto", "message-too-long")`. One boundary is absolute:
+failed verification reports `authentication-failed` and nothing else
+(above), so no extension condition may ever carry a verification verdict.
+The record's fields have two fixed roles:
 
 - the (`origin`, `name`) **pair** is the condition's only branchable
   identity;
@@ -231,7 +239,11 @@ an opaque namespace owned by the defining party (by convention its package
 name; this package defines all of its conditions under
 `"polymorph:webcrypto"`). Third-party providers mint conditions under their own
 `origin`. SDKs expose constants for known pairs, and the conformance
-suites pin exact pairs cross-implementation.
+suites pin exact pairs cross-implementation. The pairs this package
+defines are recorded in
+[`extension-conditions.json`](extension-conditions.json): the
+authoritative spelling, which the SDK constants and the implementations'
+mapping tables are gated against.
 
 **Verification returns `result<_, error>`, not `bool`.** An ignored boolean
 fails open; a dropped `result` does not.

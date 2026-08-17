@@ -7,7 +7,7 @@
 // to host-side bridges by well-known port (bridge.ts, webrtc-bridge.ts)
 // or by full synthetic destination address (the issue #26 overlay).
 //
-// Parking is deltic's, not this module's: wasi-shims' kernel (embedder-api
+// Parking is deltic's, not this module's: the wasi package's kernel (embedder-api
 // A5) serves `wasi:io/poll` and the clock subscriptions with real
 // suspension, and its `Pollable` is publicly constructible as the interop
 // seam — this module only mints `new Pollable(ready, wait)` over its
@@ -23,7 +23,7 @@
 // browsers.
 
 import { ComponentException } from "@deltic/runtime/embedder";
-import { Pollable } from "@deltic/wasi-shims";
+import { Pollable } from "@deltic/wasi/io";
 
 // ---------------------------------------------------------------------------
 // instrumentation
@@ -330,7 +330,7 @@ export class ResolveAddressStream {
 
 /**
  * The synthetic-network provider fragment (track keys), spread next to
- * deltic's `wasiShims(...)`, whose A5 kernel serves `wasi:io/poll` and
+ * deltic's `wasi(...)`, whose A5 kernel serves `wasi:io/poll` and
  * the clock subscriptions these sockets' pollables park under.
  */
 export function syntheticNetImports(): Record<string, unknown> {

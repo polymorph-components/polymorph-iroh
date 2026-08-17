@@ -2,10 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@deltic/protocol@0.2": "0.2.0",
-    "jsr:@deltic/runtime@0.1.0-pre.ga2f84a5": "0.1.0-pre.ga2f84a5",
-    "jsr:@deltic/runtime@~0.1.0-pre.ga2f84a5": "0.1.0-pre.ga2f84a5",
-    "jsr:@deltic/translator@0.1.0-pre.ga2f84a5": "0.1.0-pre.ga2f84a5",
-    "jsr:@deltic/wasi-shims@0.1.0-pre.ga2f84a5": "0.1.0-pre.ga2f84a5",
+    "jsr:@deltic/runtime@0.1": "0.1.0",
+    "jsr:@deltic/runtime@0.1.0": "0.1.0",
+    "jsr:@deltic/translator@0.1.0": "0.1.0",
+    "jsr:@deltic/wasi@0.1.0": "0.1.0",
     "npm:node-datachannel@0.32.3": "0.32.3",
     "npm:playwright@^1.62.1": "1.62.1",
     "npm:werift@0.22.2": "0.22.2"
@@ -14,23 +14,23 @@
     "@deltic/protocol@0.2.0": {
       "integrity": "028be6a3623c5e910598aa7a199209b85e8931ae484ac7f6638d610ddb0e19fa"
     },
-    "@deltic/runtime@0.1.0-pre.ga2f84a5": {
-      "integrity": "c9abb811d0c814c819924e92d57eed5f68b7bad35593edc5dcf3fc656022f4e1",
+    "@deltic/runtime@0.1.0": {
+      "integrity": "8d3f52f1a336a2dd9aed28a5c34fd281612a2f55a1582b159be614dd678593b3",
       "dependencies": [
         "jsr:@deltic/protocol"
       ]
     },
-    "@deltic/translator@0.1.0-pre.ga2f84a5": {
-      "integrity": "7e286b0cbacc26d144c4cad17f7ccae647cf5b71a48f986448e89f52204046b9",
+    "@deltic/translator@0.1.0": {
+      "integrity": "c447f27a90d7637dd3d5709f3f25378ded0f4b985bedc890c3f6a8cb9ff1eb9f",
       "dependencies": [
-        "jsr:@deltic/runtime@~0.1.0-pre.ga2f84a5"
+        "jsr:@deltic/runtime@0.1"
       ]
     },
-    "@deltic/wasi-shims@0.1.0-pre.ga2f84a5": {
-      "integrity": "92bb3f82371b1e356734e6d173fa7c38eeadf5f4cdf5c58393d2a3b7287c1b0b",
+    "@deltic/wasi@0.1.0": {
+      "integrity": "c35a19d139d684dafeca8ba200230a3eb1154627c80db298ae1393e3af938d68",
       "dependencies": [
         "jsr:@deltic/protocol",
-        "jsr:@deltic/runtime@~0.1.0-pre.ga2f84a5"
+        "jsr:@deltic/runtime@0.1"
       ]
     }
   },
@@ -621,9 +621,9 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@deltic/runtime@0.1.0-pre.ga2f84a5",
-      "jsr:@deltic/translator@0.1.0-pre.ga2f84a5",
-      "jsr:@deltic/wasi-shims@0.1.0-pre.ga2f84a5",
+      "jsr:@deltic/runtime@0.1.0",
+      "jsr:@deltic/translator@0.1.0",
+      "jsr:@deltic/wasi@0.1.0",
       "npm:node-datachannel@0.32.3",
       "npm:werift@0.22.2"
     ],
