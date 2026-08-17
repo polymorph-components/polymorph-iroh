@@ -18,6 +18,9 @@ build-components:
     cargo build -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2 --release
     mkdir -p target/components
     wac plug target/wasm32-wasip2/release/iroh_endpoint_demo.wasm --plug target/wasm32-wasip2/release/iroh_endpoint.wasm -o target/components/iroh-demo.wasm
+    # @polymorph/iroh's generated asset module (gitignored): host-deltic's
+    # `deno check src` and the jsr publish need it on disk.
+    deno run --allow-read=target --allow-write=host-deltic/src/endpoint_component.ts scripts/embed-endpoint-component.ts
 
 # Build the Wasmtime host binary the gates drive, and the native
 # interop peer. The exec-model probe driver is deliberately NOT here:
@@ -89,16 +92,21 @@ deltic-setup:
 exam-deltic: build-components relay-build deltic-setup
     #!/usr/bin/env bash
     set -euo pipefail
-    # One deltic version repo-wide (host-deltic/README.md "The pin"): the
-    # exam is the natural fail-loud point, replacing the retired
-    # fetch-translator gate. Every jsr:@deltic/* pin in both configs must
-    # name the SAME prerelease — a translator/runtime split is exactly the
-    # plan-format skew (or double-runtime WitError identity break) the
-    # packaged translator exists to rule out.
-    v=$(grep -ho 'jsr:@deltic/[a-z-]*@[^/"]*' host-deltic/deno.json \
-        experiments/iroh-relay-ws/host/deno.json | sed 's/.*@//' | sort -u)
+    # One RESOLVED deltic version repo-wide (host-deltic/README.md "The
+    # pin"): the exam is the natural fail-loud point, replacing the
+    # retired fetch-translator gate. host-deltic's published manifest
+    # carries caret ranges, so specifier strings no longer pin identity;
+    # what module identity needs is that every @deltic/* package (except
+    # @deltic/protocol, versioned independently) RESOLVES to the same
+    # version across both deno.locks — a translator/runtime split is
+    # exactly the plan-format skew (or double-runtime WitError identity
+    # break) the packaged translator exists to rule out.
+    v=$(jq -r '.jsr | keys[]' host-deltic/deno.lock \
+        experiments/iroh-relay-ws/host/deno.lock \
+        | grep '^@deltic/' | grep -v '^@deltic/protocol@' \
+        | sed 's/.*@//' | sort -u)
     if [ "$(printf '%s\n' "$v" | wc -l)" != 1 ]; then
-        echo "deltic pin drift across deno.jsons: $v" >&2
+        echo "deltic pin drift across deno.locks: $v" >&2
         exit 1
     fi
     # ...and the RESOLVED graph must agree: one embedder instance, no raw
