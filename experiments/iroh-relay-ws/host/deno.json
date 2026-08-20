@@ -9,11 +9,11 @@
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
   },
   "imports": {
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0/embedder",
-    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0/shim",
-    "@deltic/translator": "jsr:@deltic/translator@0.1.0",
-    "@deltic/wasi": "jsr:@deltic/wasi@0.1.0",
-    "@deltic/wasi/io": "jsr:@deltic/wasi@0.1.0/io",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.2.0/embedder",
+    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.2.0/shim",
+    "@deltic/translator": "jsr:@deltic/translator@0.2.0",
+    "@deltic/wasi": "jsr:@deltic/wasi@0.2.0",
+    "@deltic/wasi/io": "jsr:@deltic/wasi@0.2.0/io",
     "node-datachannel": "npm:node-datachannel@0.32.3",
     "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
     "werift": "npm:werift@0.22.2"
