@@ -2,10 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@deltic/protocol@0.2": "0.2.0",
-    "jsr:@deltic/runtime@0.1": "0.1.0",
-    "jsr:@deltic/runtime@0.1.0": "0.1.0",
-    "jsr:@deltic/translator@0.1.0": "0.1.0",
-    "jsr:@deltic/wasi@0.1.0": "0.1.0",
+    "jsr:@deltic/runtime@0.2": "0.2.0",
+    "jsr:@deltic/runtime@0.2.0": "0.2.0",
+    "jsr:@deltic/translator@0.2.0": "0.2.0",
+    "jsr:@deltic/wasi@0.2.0": "0.2.0",
     "npm:node-datachannel@0.32.3": "0.32.3",
     "npm:playwright@^1.62.1": "1.62.1",
     "npm:werift@0.22.2": "0.22.2"
@@ -14,23 +14,23 @@
     "@deltic/protocol@0.2.0": {
       "integrity": "028be6a3623c5e910598aa7a199209b85e8931ae484ac7f6638d610ddb0e19fa"
     },
-    "@deltic/runtime@0.1.0": {
-      "integrity": "8d3f52f1a336a2dd9aed28a5c34fd281612a2f55a1582b159be614dd678593b3",
+    "@deltic/runtime@0.2.0": {
+      "integrity": "cf8b0bdd9e6bc4488ba78cc91661103bfcbd78f5a5c4ff99132799618a9db4bb",
       "dependencies": [
         "jsr:@deltic/protocol"
       ]
     },
-    "@deltic/translator@0.1.0": {
-      "integrity": "c447f27a90d7637dd3d5709f3f25378ded0f4b985bedc890c3f6a8cb9ff1eb9f",
+    "@deltic/translator@0.2.0": {
+      "integrity": "8104b54e2acdccfd75f5ddc941d72b581e7defbbe31c05bbc66598d2df7a34f9",
       "dependencies": [
-        "jsr:@deltic/runtime@0.1"
+        "jsr:@deltic/runtime@0.2"
       ]
     },
-    "@deltic/wasi@0.1.0": {
-      "integrity": "c35a19d139d684dafeca8ba200230a3eb1154627c80db298ae1393e3af938d68",
+    "@deltic/wasi@0.2.0": {
+      "integrity": "82c76d4fda0a1c9238a91f8ebc7fdbac952a03aa06d4a2a820213df2654f5c24",
       "dependencies": [
         "jsr:@deltic/protocol",
-        "jsr:@deltic/runtime@0.1"
+        "jsr:@deltic/runtime@0.2"
       ]
     }
   },
@@ -621,9 +621,9 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@deltic/runtime@0.1.0",
-      "jsr:@deltic/translator@0.1.0",
-      "jsr:@deltic/wasi@0.1.0",
+      "jsr:@deltic/runtime@0.2.0",
+      "jsr:@deltic/translator@0.2.0",
+      "jsr:@deltic/wasi@0.2.0",
       "npm:node-datachannel@0.32.3",
       "npm:werift@0.22.2"
     ],
