@@ -130,8 +130,7 @@ interop-prod: build
 # bootstrap over the polymorph-websocket sibling's polyengine module, then
 # live migration onto a WebRTC data channel through the synthetic-address
 # overlay (issue #26). Research probe attached to the issue, so manual:
-# not part of `ci`. The host's sibling polyengine module imports await the
-# JSR migration (issue #83).
+# not part of `ci`.
 iroh-relay-ws:
     cd experiments/iroh-relay-ws/guest && cargo build --release
     cd experiments/iroh-relay-ws/host && deno install --frozen --allow-scripts=npm:node-datachannel
