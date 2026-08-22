@@ -9,13 +9,13 @@ description = "Native hosts: run this repository's guest components under Wasmti
 [dependencies]
 # The `polymorph:webrtc-datachannels` host implementation (a real webrtc-rs peer
 # connection behind the `connections` imports).
-wasmtime-webrtc-datachannels = { path = "../.deps/webrtc/wasmtime-impl" }
+wasmtime-webrtc-datachannels.workspace = true
 # The `polymorph:webcrypto` host implementation (RustCrypto behind the crypto
 # imports the guest's TLS layer uses).
-polymorph-webcrypto-wasmtime = { path = "../.deps/webcrypto/rust/wasmtime" }
+polymorph-webcrypto-wasmtime.workspace = true
 # The `polymorph:websocket` host implementation (tokio-tungstenite behind the
 # relay connection the guest signals over).
-wasmtime-websocket = { path = "../.deps/websocket/rust/wasmtime" }
+wasmtime-websocket.workspace = true
 wasmtime = { version = "47", features = ["component-model", "component-model-async", "async", "cranelift", "runtime"] }
 wasmtime-wasi = { version = "47", features = ["p3"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

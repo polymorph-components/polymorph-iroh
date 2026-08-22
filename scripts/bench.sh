@@ -4,7 +4,7 @@
 # numbers land in target/bench/report.tsv (and stdout); the budgets are
 # the recorded invariants — a number that matters is asserted here, not
 # written in prose. Requires the same artifacts as the matrix
-# (`just build`, `just relay-build`).
+# (`just build`, the pinned iroh-relay binary on PATH).
 set -u
 cd "$(dirname "$0")/.."
 
@@ -41,7 +41,7 @@ cat > "$LOGDIR/relay.toml" <<EOF
 http_bind_addr = "127.0.0.1:${RELAY_PORT}"
 enable_metrics = false
 EOF
-.deps/iroh/target/release/iroh-relay --dev -c "$LOGDIR/relay.toml" \
+iroh-relay --dev -c "$LOGDIR/relay.toml" \
     > "$LOGDIR/relay.log" 2>&1 &
 RELAY_PID=$!
 trap 'kill $RELAY_PID 2>/dev/null' EXIT

@@ -1,30 +1,20 @@
 #!/usr/bin/env bash
 # One-shot dependency setup, the single source of truth shared by local
-# developers and CI: the pinned toolchain and tools, and sibling
-# repositories checked out under .deps/ at pinned commits. Idempotent;
-# safe to re-run.
+# developers and CI: the pinned toolchain, tools, and the pinned
+# iroh-relay binary. Idempotent; safe to re-run.
 #
 # Environment:
 #   WASM_TOOLS_VERSION   version of wasm-tools to install (default below)
 #   JUST_VERSION         version of just to install (default below)
 #   WAC_VERSION          version of wac-cli to install (default below)
+#   IROH_RELAY_VERSION   version of the iroh-relay binary to install (default below)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 WASM_TOOLS_VERSION="${WASM_TOOLS_VERSION:-1.247.0}"
 JUST_VERSION="${JUST_VERSION:-1.54.0}"
 WAC_VERSION="${WAC_VERSION:-0.10.1}"
-
-WEBRTC_REPO=https://github.com/polymorph-components/polymorph-webrtc-datachannels.git
-WEBRTC_PIN=0f991407c2698577df3d117789024c14be250bd6
-WEBCRYPTO_REPO=https://github.com/polymorph-components/polymorph-webcrypto.git
-WEBCRYPTO_PIN=227d075a9f306764029dd6762fdab73c6cfc893f
-WEBSOCKET_REPO=https://github.com/polymorph-components/polymorph-websocket.git
-WEBSOCKET_PIN=7c364c593d51a977f5f267711b06d0fb18cfc068
-IROH_REPO=https://github.com/n0-computer/iroh.git
-IROH_PIN=816dd70c056b813dcb5cbfb6a9a15e12d04b72b1 # v1.0.3
-TLS_REPO=https://github.com/polymorph-components/polymorph-tls.git
-TLS_PIN=e6f244c2136a1fdc8bd836aab05572620c3d3df4
+IROH_RELAY_VERSION="${IROH_RELAY_VERSION:-1.0.3}"
 
 log() { printf '\n==> %s\n' "$1"; }
 
@@ -139,27 +129,21 @@ else
     binstall "wac-cli@${WAC_VERSION}"
 fi
 
-# Check out `repo` at `pin` under .deps/`name`, cloning or fetching as
-# needed. An existing checkout at the pin is left untouched.
-dep() {
-    local name=$1 repo=$2 pin=$3
-    local dir=.deps/$name
-    if [ ! -e "$dir" ]; then
-        git clone "$repo" "$dir"
-    fi
-    if [ "$(git -C "$dir" rev-parse HEAD)" != "$pin" ]; then
-        git -C "$dir" fetch origin "$pin" 2>/dev/null || git -C "$dir" fetch origin
-        git -C "$dir" checkout "$pin"
-    fi
-}
-
-log "Checking out pinned sibling and upstream repositories under .deps/"
-mkdir -p .deps
-dep webrtc "$WEBRTC_REPO" "$WEBRTC_PIN"
-dep webcrypto "$WEBCRYPTO_REPO" "$WEBCRYPTO_PIN"
-dep websocket "$WEBSOCKET_REPO" "$WEBSOCKET_PIN"
-# Upstream iroh: the stock relay server the demo runs against.
-dep iroh "$IROH_REPO" "$IROH_PIN"
-dep tls "$TLS_REPO" "$TLS_PIN"
+log "Ensuring iroh-relay ${IROH_RELAY_VERSION} is installed"
+# Version-checked, not presence-checked: the interop gates pair this
+# binary with the `iroh` crate tools/iroh-peer pins (`=1.0.3`); the two
+# move together. On platforms with no prebuilt release asset, binstall's
+# source fallback needs `--features server` to produce the binary:
+#   cargo install iroh-relay@<ver> --locked --features server
+if command -v iroh-relay >/dev/null 2>&1 && iroh-relay --version 2>/dev/null | grep -qF "${IROH_RELAY_VERSION}"; then
+    echo "iroh-relay already present: $(iroh-relay --version)"
+else
+    binstall "iroh-relay@${IROH_RELAY_VERSION}"
+    hash -r
+    iroh-relay --version 2>/dev/null | grep -qF "${IROH_RELAY_VERSION}" || {
+        echo "setup: a different iroh-relay still shadows ${IROH_RELAY_VERSION} on PATH: $(command -v iroh-relay) ($(iroh-relay --version))" >&2
+        exit 1
+    }
+fi
 
 log "setup complete"

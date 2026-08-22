@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The repeatable cross-host gate: every demo pairing this repository
 # claims works, asserted in one run. Requires the components and hosts
-# already built (`just build`) and the iroh-relay binary present
-# (`just relay-build`). Prints one PASS/FAIL line per pairing and exits
+# already built (`just build`) and the pinned iroh-relay binary on PATH
+# (`scripts/setup.sh`). Prints one PASS/FAIL line per pairing and exits
 # nonzero if any failed.
 set -u
 cd "$(dirname "$0")/.."
@@ -24,14 +24,14 @@ cat > "$LOGDIR/relay.toml" <<EOF
 http_bind_addr = "127.0.0.1:${RELAY_PORT}"
 enable_metrics = false
 EOF
-.deps/iroh/target/release/iroh-relay --dev -c "$LOGDIR/relay.toml" \
+iroh-relay --dev -c "$LOGDIR/relay.toml" \
     > "$LOGDIR/relay.log" 2>&1 &
 RELAY_PID=$!
 cat > "$LOGDIR/relay-b.toml" <<EOF
 http_bind_addr = "127.0.0.1:${RELAY_B_PORT}"
 enable_metrics = false
 EOF
-.deps/iroh/target/release/iroh-relay --dev -c "$LOGDIR/relay-b.toml" \
+iroh-relay --dev -c "$LOGDIR/relay-b.toml" \
     > "$LOGDIR/relay-b.log" 2>&1 &
 RELAY_B_PID=$!
 trap 'kill $RELAY_PID $RELAY_B_PID 2>/dev/null' EXIT
