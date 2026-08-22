@@ -13,7 +13,7 @@
 // Connections are keyed by the guest socket that carries them (one relay
 // connection = one synthetic socket = one websocket).
 
-import { Websocket } from "../../../.deps/websocket/js/polyengine/websocket.ts";
+import { Websocket } from "@polymorph/websocket";
 import type { OutgoingDatagram, UdpSocket } from "./sockets.ts";
 import { pushDatagram, registerBridge } from "./sockets.ts";
 import { describeErr } from "./errors.ts";

@@ -30,7 +30,7 @@ import {
   DataChannelOptions,
   PeerConnection,
   PeerConnectionConfig,
-} from "../../../.deps/webrtc/polyengine-impl/src/webrtc.ts";
+} from "@polymorph/webrtc-datachannels";
 import type { IpSocketAddress, OutgoingDatagram, UdpSocket } from "./sockets.ts";
 import {
   pushDatagram,

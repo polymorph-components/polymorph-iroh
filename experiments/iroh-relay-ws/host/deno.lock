@@ -6,6 +6,8 @@
     "jsr:@polyengine/runtime@0.3.0": "0.3.0",
     "jsr:@polyengine/translator@0.3.0": "0.3.0",
     "jsr:@polyengine/wasi@0.3.0": "0.3.0",
+    "jsr:@polymorph/webrtc-datachannels@0.3.0": "0.3.0",
+    "jsr:@polymorph/websocket@0.3.0": "0.3.0",
     "npm:node-datachannel@0.32.3": "0.32.3",
     "npm:playwright@^1.62.1": "1.62.1",
     "npm:werift@0.22.2": "0.22.2"
@@ -30,6 +32,20 @@
       "integrity": "991adfdd39f795f94bba91a523322b88d45ff42800669b5b472356676e3c97e7",
       "dependencies": [
         "jsr:@polyengine/protocol",
+        "jsr:@polyengine/runtime@0.3"
+      ]
+    },
+    "@polymorph/webrtc-datachannels@0.3.0": {
+      "integrity": "576bcbe4b1053e7d27ac9f8b2d2f61e979987a749b226cc09db328f837b32675",
+      "dependencies": [
+        "jsr:@polyengine/runtime@0.3",
+        "npm:node-datachannel",
+        "npm:werift"
+      ]
+    },
+    "@polymorph/websocket@0.3.0": {
+      "integrity": "23c92ed2ccda31ca66cad1ac9cbcf87473ccac7ae9a2b82fcb3486d5af97bbcd",
+      "dependencies": [
         "jsr:@polyengine/runtime@0.3"
       ]
     }
@@ -611,8 +627,8 @@
       "jsr:@polyengine/runtime@0.3.0",
       "jsr:@polyengine/translator@0.3.0",
       "jsr:@polyengine/wasi@0.3.0",
-      "npm:node-datachannel@0.32.3",
-      "npm:werift@0.22.2"
+      "jsr:@polymorph/webrtc-datachannels@0.3.0",
+      "jsr:@polymorph/websocket@0.3.0"
     ],
     "packageJson": {
       "dependencies": [

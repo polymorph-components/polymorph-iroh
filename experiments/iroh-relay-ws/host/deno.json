@@ -1,9 +1,9 @@
 {
-  "//": "MODULE-IDENTITY CONSTRAINT: polyengine's wasi package and the sibling polyengine host modules (.deps/{websocket,webrtc}) import @polyengine/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof ComponentException` holds across every boundary. This is the ONE deno config for all three experiments (iroh-relay-ws, iroh-blobs, ping-demo): the others pass --config pointing here. polyengine arrives as exact-pinned JSR releases (caret-honest upstream: within a minor line releases stay compatible, breaking bumps the minor; per-commit `<next>-pre.g<hash>` prereleases exist between releases — pin exactly; @polyengine/translator ships the translator wasm for the SAME commit); the version matches host-polyengine/deno.json by repo convention (exam-polyengine asserts it; see host-polyengine/README.md, 'The pin'). minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @polyengine publishes resolve. The npm mappings serve the webrtc module's bare specifiers under Deno; a browser build resolves the RTCPeerConnection global instead. compilerOptions.lib carries dom next to deno.ns so the browser entries (browser-entry.ts, ping-demo's demo.ts/overlay.ts) type-check in the same graph as the Deno drivers.",
+  "//": "MODULE-IDENTITY CONSTRAINT: polyengine's wasi package and the sibling @polymorph host modules (JSR) import @polyengine/runtime/embedder by bare specifier internally; this file maps that specifier ONCE for the whole module graph, so `instanceof ComponentException` holds across every boundary. This is the ONE deno config for all three experiments (iroh-relay-ws, iroh-blobs, ping-demo): the others pass --config pointing here. polyengine arrives as exact-pinned JSR releases (caret-honest upstream: within a minor line releases stay compatible, breaking bumps the minor; per-commit `<next>-pre.g<hash>` prereleases exist between releases — pin exactly; @polyengine/translator ships the translator wasm for the SAME commit); the version matches host-polyengine/deno.json by repo convention (exam-polyengine asserts it; see host-polyengine/README.md, 'The pin'). The @polymorph packages are exact-pinned the same way. minimumDependencyAge keeps Deno's default supply-chain gate for everything else while letting same-day @polyengine/@polymorph publishes resolve. The webrtc module's npm dependencies (node-datachannel, werift) arrive through @polymorph/webrtc-datachannels' own manifest; a browser build externalizes them and resolves the RTCPeerConnection global instead. compilerOptions.lib carries dom next to deno.ns so the browser entries (browser-entry.ts, ping-demo's demo.ts/overlay.ts) type-check in the same graph as the Deno drivers.",
   "nodeModulesDir": "auto",
   "minimumDependencyAge": {
     "age": "P1D",
-    "exclude": ["jsr:@polyengine/*"]
+    "exclude": ["jsr:@polyengine/*", "jsr:@polymorph/*"]
   },
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
@@ -14,9 +14,8 @@
     "@polyengine/translator": "jsr:@polyengine/translator@0.3.0",
     "@polyengine/wasi": "jsr:@polyengine/wasi@0.3.0",
     "@polyengine/wasi/io": "jsr:@polyengine/wasi@0.3.0/io",
-    "node-datachannel": "npm:node-datachannel@0.32.3",
-    "node-datachannel/polyfill": "npm:node-datachannel@0.32.3/polyfill",
-    "werift": "npm:werift@0.22.2"
+    "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@0.3.0",
+    "@polymorph/websocket": "jsr:@polymorph/websocket@0.3.0"
   },
   "tasks": {
     "check": "deno check ."
