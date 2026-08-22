@@ -1,52 +1,52 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@polyengine/protocol@0.1": "0.1.0",
-    "jsr:@polyengine/runtime@0.3": "0.3.0",
-    "jsr:@polyengine/runtime@0.3.0": "0.3.0",
-    "jsr:@polyengine/translator@0.3.0": "0.3.0",
-    "jsr:@polyengine/wasi@0.3.0": "0.3.0",
-    "jsr:@polymorph/webrtc-datachannels@0.3.0": "0.3.0",
-    "jsr:@polymorph/websocket@0.3.0": "0.3.0",
+    "jsr:@polyengine/protocol@~0.2.1": "0.2.1",
+    "jsr:@polyengine/runtime@0.4": "0.4.0",
+    "jsr:@polyengine/runtime@0.4.0": "0.4.0",
+    "jsr:@polyengine/translator@0.4.0": "0.4.0",
+    "jsr:@polyengine/wasi@0.4.0": "0.4.0",
+    "jsr:@polymorph/webrtc-datachannels@0.4.0": "0.4.0",
+    "jsr:@polymorph/websocket@0.4.0": "0.4.0",
     "npm:node-datachannel@0.32.3": "0.32.3",
     "npm:playwright@^1.62.1": "1.62.1",
     "npm:werift@0.22.2": "0.22.2"
   },
   "jsr": {
-    "@polyengine/protocol@0.1.0": {
-      "integrity": "0c97f34166f22ba55e7b084148df96e47aebe47cd9dd13930057759c9161bb1c"
+    "@polyengine/protocol@0.2.1": {
+      "integrity": "857bef84afedc414d47daedf203448f72e8803cf96301afb783b1ac975f3dcec"
     },
-    "@polyengine/runtime@0.3.0": {
-      "integrity": "97d7648c104dd0f08b4d10e1ed0117ab0cb5243db68c139f1f3df25755ed4e60",
+    "@polyengine/runtime@0.4.0": {
+      "integrity": "d34a59d9df58bd48541483619d1987319d8aad4d2e0f3775890177ffb0878a5a",
       "dependencies": [
         "jsr:@polyengine/protocol"
       ]
     },
-    "@polyengine/translator@0.3.0": {
-      "integrity": "1d9fcd09d360850bc08927ed1cf8124d50a0fed09ed8c80f354a6d3aedfcad25",
+    "@polyengine/translator@0.4.0": {
+      "integrity": "227cf2f92a5b11bce6155742b2a42cf14a642a89d3867ffd1789d6e6e8d49fdc",
       "dependencies": [
-        "jsr:@polyengine/runtime@0.3"
+        "jsr:@polyengine/runtime@0.4"
       ]
     },
-    "@polyengine/wasi@0.3.0": {
-      "integrity": "991adfdd39f795f94bba91a523322b88d45ff42800669b5b472356676e3c97e7",
+    "@polyengine/wasi@0.4.0": {
+      "integrity": "b946443255e98cb6156237de90f051af7e483d2afdc0d721bdba64392cdbd896",
       "dependencies": [
         "jsr:@polyengine/protocol",
-        "jsr:@polyengine/runtime@0.3"
+        "jsr:@polyengine/runtime@0.4"
       ]
     },
-    "@polymorph/webrtc-datachannels@0.3.0": {
-      "integrity": "576bcbe4b1053e7d27ac9f8b2d2f61e979987a749b226cc09db328f837b32675",
+    "@polymorph/webrtc-datachannels@0.4.0": {
+      "integrity": "98022ce52d150532ac422faf86fba50d9ae55676d3cf803888bae79255ed35b1",
       "dependencies": [
-        "jsr:@polyengine/runtime@0.3",
+        "jsr:@polyengine/runtime@0.4",
         "npm:node-datachannel",
         "npm:werift"
       ]
     },
-    "@polymorph/websocket@0.3.0": {
-      "integrity": "23c92ed2ccda31ca66cad1ac9cbcf87473ccac7ae9a2b82fcb3486d5af97bbcd",
+    "@polymorph/websocket@0.4.0": {
+      "integrity": "f2b77720ca02ba95d405a51abd4ca930074a22188ce23a5731c0a6b40f9c4bf2",
       "dependencies": [
-        "jsr:@polyengine/runtime@0.3"
+        "jsr:@polyengine/runtime@0.4"
       ]
     }
   },
@@ -341,8 +341,8 @@
     "lodash@4.18.1": {
       "integrity": "sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q=="
     },
-    "mediabunny@1.55.1": {
-      "integrity": "sha512-JDdTEUOw9g6Ey8eWc2Ei63GmRGtGTJoE56SE7CHikwzS8i9xpsWcve4bEiUw47d4j49L3r7MXDFsH/5oZIhjBw==",
+    "mediabunny@1.55.2": {
+      "integrity": "sha512-EEx4O6qYddAdCyWPMZNDwI7uc5hewNHrPAf9jLcVhIbXoPsiqNQ+D9i1pfadmGkjN2V318jSrZljkpoziYm6Lg==",
       "dependencies": [
         "@types/dom-mediacapture-transform",
         "@types/dom-webcodecs"
@@ -624,11 +624,11 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@polyengine/runtime@0.3.0",
-      "jsr:@polyengine/translator@0.3.0",
-      "jsr:@polyengine/wasi@0.3.0",
-      "jsr:@polymorph/webrtc-datachannels@0.3.0",
-      "jsr:@polymorph/websocket@0.3.0"
+      "jsr:@polyengine/runtime@0.4.0",
+      "jsr:@polyengine/translator@0.4.0",
+      "jsr:@polyengine/wasi@0.4.0",
+      "jsr:@polymorph/webrtc-datachannels@0.4.0",
+      "jsr:@polymorph/websocket@0.4.0"
     ],
     "packageJson": {
       "dependencies": [

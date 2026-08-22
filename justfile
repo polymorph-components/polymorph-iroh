@@ -95,8 +95,8 @@ exam-polyengine: build-components polyengine-setup
     # what module identity needs is that every @polyengine/* package (except
     # @polyengine/protocol, versioned independently) RESOLVES to the same
     # version across both deno.locks — a translator/runtime split is
-    # exactly the plan-format skew (or double-runtime WitError identity
-    # break) the packaged translator exists to rule out.
+    # exactly the plan-format skew (or double-runtime ComponentException
+    # identity break) the packaged translator exists to rule out.
     v=$(jq -r '.jsr | keys[]' host-polyengine/deno.lock \
         experiments/iroh-relay-ws/host/deno.lock \
         | grep '^@polyengine/' | grep -v '^@polyengine/protocol@' \
