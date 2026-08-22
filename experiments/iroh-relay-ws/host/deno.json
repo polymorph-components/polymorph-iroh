@@ -9,13 +9,13 @@
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
   },
   "imports": {
-    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.3.0/embedder",
-    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.3.0/shim",
-    "@polyengine/translator": "jsr:@polyengine/translator@0.3.0",
-    "@polyengine/wasi": "jsr:@polyengine/wasi@0.3.0",
-    "@polyengine/wasi/io": "jsr:@polyengine/wasi@0.3.0/io",
-    "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@0.3.0",
-    "@polymorph/websocket": "jsr:@polymorph/websocket@0.3.0"
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.4.0/embedder",
+    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.4.0/shim",
+    "@polyengine/translator": "jsr:@polyengine/translator@0.4.0",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@0.4.0",
+    "@polyengine/wasi/io": "jsr:@polyengine/wasi@0.4.0/io",
+    "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@0.4.0",
+    "@polymorph/websocket": "jsr:@polymorph/websocket@0.4.0"
   },
   "tasks": {
     "check": "deno check ."

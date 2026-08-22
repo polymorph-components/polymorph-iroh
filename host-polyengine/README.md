@@ -54,8 +54,8 @@ guest's and is latent on every host.
 ## The pin
 
 polyengine and the sibling host modules arrive from JSR under caret
-constraints on one minor line (`jsr:@polyengine/*@^0.3.0`,
-`jsr:@polymorph/*@^0.3.0`); `deno.lock` pins the resolved versions and
+constraints on one minor line (`jsr:@polyengine/*@^0.4.0`,
+`jsr:@polymorph/*@^0.4.0`); `deno.lock` pins the resolved versions and
 carries integrity, enforced with `--frozen`. `@polyengine/translator` ships
 the translator wasm for the same commit as the runtime, so the
 plan-format coupling between runtime and translator is self-consistent
