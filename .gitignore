@@ -4,4 +4,4 @@ node_modules
 /experiments/iroh-relay-ws/host/dist
 /experiments/iroh-blobs/host/dist
 /experiments/ping-demo/web/site
-/host-deltic/src/endpoint_component.ts
+/host-polyengine/src/endpoint_component.ts

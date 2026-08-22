@@ -32,7 +32,7 @@ jobs:
         # rust-toolchain.toml; `rustup show` installs exactly those.
         run: rustup show active-toolchain || rustup toolchain install
 
-      - name: Install Deno (the deltic host; stock, no flags)
+      - name: Install Deno (the polyengine host; stock, no flags)
         uses: denoland/setup-deno@v2
         with:
           deno-version: "2.9.5"

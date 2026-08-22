@@ -1,22 +1,22 @@
-// Shared host wiring for the upstream-iroh spikes under deltic: artifact
+// Shared host wiring for the upstream-iroh spikes under polyengine: artifact
 // translation, the WASI import record, and the guest `run` entry point.
 //
 // Platform-portable core: byte loading (filesystem vs fetch) stays in the
 // drivers (run.ts, browser-entry.ts); everything here uses standard
 // globals only.
 //
-// MODULE-IDENTITY CONSTRAINT (host-deltic/README.md "Module identity"):
-// deltic's wasi package and this package import `@deltic/runtime/embedder`
+// MODULE-IDENTITY CONSTRAINT (host-polyengine/README.md "Module identity"):
+// polyengine's wasi package and this package import `@polyengine/runtime/embedder`
 // by bare specifier; the `deno.json` next to this file maps that
 // specifier once for the whole module graph, so there is exactly one
 // `ComponentException` module instance and `instanceof` holds across every
 // boundary — including the branded errors sockets.ts throws.
 
-import type { ComponentArtifacts } from "@deltic/runtime/embedder";
-import { artifactsFromEnvelope, instantiate } from "@deltic/runtime/embedder";
-import type { Translator } from "@deltic/runtime/shim";
-import { wasi } from "@deltic/wasi";
-import { OutputStream } from "@deltic/wasi/io";
+import type { ComponentArtifacts } from "@polyengine/runtime/embedder";
+import { artifactsFromEnvelope, instantiate } from "@polyengine/runtime/embedder";
+import type { Translator } from "@polyengine/runtime/shim";
+import { wasi } from "@polyengine/wasi";
+import { OutputStream } from "@polyengine/wasi/io";
 import { syntheticNetImports } from "./sockets.ts";
 
 /** Reconstitute build-time-translated artifacts (embedder-api A4). */
@@ -50,7 +50,7 @@ export interface GuestOptions {
 }
 
 /**
- * The full import record for the spike guests: deltic's wasi()
+ * The full import record for the spike guests: polyengine's wasi()
  * baseline (whose A5 parking kernel serves poll/clock suspension), the
  * synthetic network fragment (sockets.ts), and stdio routed to the
  * console line-buffered.
@@ -71,7 +71,7 @@ export function guestImports(options: GuestOptions): Record<string, unknown> {
  *
  * `artifacts` is anything `instantiate` accepts (embedder-api A3): the
  * translated `ComponentArtifacts`, or `{ componentBytes, translator }`
- * with `@deltic/translator`'s instance for in-process translation. jspi
+ * with `@polyengine/translator`'s instance for in-process translation. jspi
  * mode is selected by the wasi package's own `suspending()` markers (the A5
  * kernel); no explicit option is needed.
  */

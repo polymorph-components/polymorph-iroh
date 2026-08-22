@@ -1,5 +1,5 @@
-// Build-time translation (deltic embedder-api A4): component in, envelope
-// out. The translator is `@deltic/translator`'s packaged asset — the same
+// Build-time translation (polyengine embedder-api A4): component in, envelope
+// out. The translator is `@polyengine/translator`'s packaged asset — the same
 // pinned release as the runtime, so the envelope's plan format matches
 // what the pages' `artifactsFromEnvelope` expects by construction.
 //
@@ -10,7 +10,7 @@
 //       translate.ts <component.wasm> <out.plan.json>
 
 import { dirname } from "node:path";
-import { defaultTranslator } from "@deltic/translator";
+import { defaultTranslator } from "@polyengine/translator";
 
 const [input, output] = Deno.args;
 if (!input || !output) {

@@ -4,19 +4,19 @@
 // Everything here is host wiring; the exam scenarios in `run-endpoint.ts`
 // (repo-internal) carry the verdicts. `bindEndpoint(...)` mirrors the jco
 // host's retired `iroh.Endpoint.bind(...)` driving shape over
-// `instantiate` + the deltic embedder facade.
+// `instantiate` + the polyengine embedder facade.
 //
-// MODULE-IDENTITY CONSTRAINT: deltic's wasi package and the sibling host
-// modules import `@deltic/runtime/embedder` by bare specifier internally;
+// MODULE-IDENTITY CONSTRAINT: polyengine's wasi package and the sibling host
+// modules import `@polyengine/runtime/embedder` by bare specifier internally;
 // this package's `deno.json` and the sibling packages' manifests all
-// carry caret constraints on one `@deltic/runtime` minor line, so a
+// carry caret constraints on one `@polyengine/runtime` minor line, so a
 // consumer's resolver dedupes them onto one module instance and
 // `instanceof ComponentException`/`Stream` holds across every boundary.
 
-import { defaultTranslator } from "@deltic/translator";
-import type { ComponentArtifacts } from "@deltic/runtime/embedder";
-import { instantiate, ComponentException } from "@deltic/runtime/embedder";
-import { wasi } from "@deltic/wasi";
+import { defaultTranslator } from "@polyengine/translator";
+import type { ComponentArtifacts } from "@polyengine/runtime/embedder";
+import { instantiate, ComponentException } from "@polyengine/runtime/embedder";
+import { wasi } from "@polyengine/wasi";
 import { webcryptoImports } from "@polymorph/webcrypto";
 import { websocketImports } from "@polymorph/websocket";
 import { webrtcImports } from "@polymorph/webrtc-datachannels";
@@ -63,7 +63,7 @@ async function translate(bytes: Uint8Array): Promise<ComponentArtifacts> {
  * permission — but the multi-MiB module evaluates only when the packaged
  * default is actually used.
  *
- * The translator is `@deltic/translator`'s packaged asset — the same
+ * The translator is `@polyengine/translator`'s packaged asset — the same
  * pinned release as the runtime, loaded through the module graph
  * (permission-free on Deno), so there is no fetch step and no
  * plan-format skew to guard against.
@@ -111,7 +111,7 @@ export interface EndpointInstance {
 }
 
 /**
- * Stand up one component instance of the endpoint, with the sibling deltic
+ * Stand up one component instance of the endpoint, with the sibling polyengine
  * host modules supplying every non-WASI import.
  *
  * Import fragments are built FRESH per instance: the host modules' resource

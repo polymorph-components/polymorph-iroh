@@ -1,8 +1,8 @@
-// Render an error for a log line, unwrapping deltic's branded
+// Render an error for a log line, unwrapping polyengine's branded
 // `ComponentException<{kind, value?}>` payloads (the sibling host modules
 // throw these).
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 
 export function describeErr(err: unknown): string {
   if (err instanceof ComponentException) {

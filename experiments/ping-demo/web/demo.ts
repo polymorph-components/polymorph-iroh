@@ -506,7 +506,7 @@ try {
     setStatus("error", `guest failed: ${err}`)
   );
 } catch (err) {
-  // Feature-probe only: deltic's jspi types are module-scoped (no global
+  // Feature-probe only: polyengine's jspi types are module-scoped (no global
   // WebAssembly augmentation), so read the property untyped.
   const jspi = typeof (WebAssembly as { Suspending?: unknown }).Suspending === "function";
   setStatus(

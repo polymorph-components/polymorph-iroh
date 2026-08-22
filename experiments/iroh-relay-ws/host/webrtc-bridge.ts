@@ -1,6 +1,6 @@
 // The WebRTC overlay bridge: assigns each registered endpoint a synthetic
 // IP address, and carries datagrams for that address over real data
-// channels through the polymorph-webrtc-datachannels sibling's deltic
+// channels through the polymorph-webrtc-datachannels sibling's polyengine
 // host module (node-datachannel's W3C polyfill under Deno, the browser
 // global in a browser). The guest runs stock iroh IP transports; the
 // synthetic address enters iroh through `Endpoint::add_external_addr`,
@@ -30,7 +30,7 @@ import {
   DataChannelOptions,
   PeerConnection,
   PeerConnectionConfig,
-} from "../../../.deps/webrtc/deltic-impl/src/webrtc.ts";
+} from "../../../.deps/webrtc/polyengine-impl/src/webrtc.ts";
 import type { IpSocketAddress, OutgoingDatagram, UdpSocket } from "./sockets.ts";
 import {
   pushDatagram,

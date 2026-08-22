@@ -1,9 +1,9 @@
 /**
  * @polymorph/iroh — the iroh endpoint as a WebAssembly component,
- * runtime-linked under deltic.
+ * runtime-linked under polyengine.
  *
  * `newEndpointInstance()` stands up one endpoint instance over the sibling
- * `@polymorph` deltic host modules — webcrypto (identity keys), websocket
+ * `@polymorph` polyengine host modules — webcrypto (identity keys), websocket
  * (relay transport), webrtc-datachannels (direct browser paths) — plus a
  * browser-profile `wasi:sockets` provider whose UDP surface answers
  * `not-supported` (the endpoint binds no socket when `udp-bind-addr` is

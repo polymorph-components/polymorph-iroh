@@ -1,7 +1,7 @@
 // Embed the built endpoint component as @polymorph/iroh's asset module:
 //
 //   target/wasm32-wasip2/release/iroh_endpoint.wasm
-//     -> host-deltic/src/endpoint_component.ts   (gitignored, GENERATED)
+//     -> host-polyengine/src/endpoint_component.ts   (gitignored, GENERATED)
 //
 // Run by `just build-components` and by the jsr-publish workflow. Base64
 // in a TypeScript module keeps the bytes inside the statically-analyzable
@@ -10,11 +10,11 @@
 // raw-imports flag.
 //
 //   deno run --allow-read=target \
-//     --allow-write=host-deltic/src/endpoint_component.ts \
+//     --allow-write=host-polyengine/src/endpoint_component.ts \
 //     scripts/embed-endpoint-component.ts
 
 const WASM = "target/wasm32-wasip2/release/iroh_endpoint.wasm";
-const OUT = "host-deltic/src/endpoint_component.ts";
+const OUT = "host-polyengine/src/endpoint_component.ts";
 
 const wasm = await Deno.readFile(WASM);
 let bin = "";

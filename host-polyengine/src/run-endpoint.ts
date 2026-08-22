@@ -1,5 +1,5 @@
-// The iroh endpoint exam on the deltic host: the endpoint COMPONENT
-// runtime-linked under stock Deno, with the sibling repositories' deltic
+// The iroh endpoint exam on the polyengine host: the endpoint COMPONENT
+// runtime-linked under stock Deno, with the sibling repositories' polyengine
 // host modules supplying every non-WASI import — no transpile step, no
 // generated tree, no engine flag.
 //
@@ -9,7 +9,7 @@
 // delivered); the jco host has since retired, and this file's driving
 // logic is what its held-ready driver would have used.
 //
-//   just exam-deltic
+//   just exam-polyengine
 //
 // `--unstable-net` is not needed by anything here today (see src/sockets.ts:
 // the browser profile binds no UDP socket and the exam asserts zero
@@ -33,9 +33,9 @@
 // other tasks (`connect`, `accept`, `open-bi`, …) all park in `wait_until`,
 // whose first act is `shared.borrow_mut()` — which panics `RefCell already
 // borrowed`, aborting the guest with an `unreachable` trap. The hazard is
-// latent on every host; deltic reaches it more often because a resolved
+// latent on every host; polyengine reaches it more often because a resolved
 // task that blocks mid-frame releases the instance's exclusivity there (a
-// documented wasmtime-tracking divergence, deltic
+// documented wasmtime-tracking divergence, polyengine
 // runtime/src/jspi/bridge.ts), so a parked poller can interleave with the
 // signing window.
 //
@@ -74,7 +74,7 @@ async function newEndpointInstance(
     ...options,
   });
 }
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
 import type {
   CloseInfo,
@@ -472,7 +472,7 @@ async function echoRoundtrip(conn: Connection, sconn: Connection, what: string):
 
 async function main(): Promise<number> {
   installPanicWatchdog();
-  console.log("iroh endpoint exam (deltic / stock Deno)");
+  console.log("iroh endpoint exam (polyengine / stock Deno)");
 
   const relay = await startRelay();
   try {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the ping demo into web/site/: guest component (cargo), deltic
+# Builds the ping demo into web/site/: guest component (cargo), polyengine
 # build-time translation (A4 envelope), and the bundled page — the site
 # must be self-contained (GitHub Pages, and COEP blocks anything
 # cross-origin without CORP anyway). Runtime host layer (sockets, bridge,
@@ -17,9 +17,9 @@ GUEST_WASM=guest/target/wasm32-wasip2/release/ping-demo-guest.wasm
 rm -rf "$SITE"
 mkdir -p "$SITE"
 
-# Build-time translation (deltic embedder-api A4): produces the
+# Build-time translation (polyengine embedder-api A4): produces the
 # component-plus-plan envelope the page fetches at runtime. The
-# translator is @deltic/translator's packaged asset at the same pinned
+# translator is @polyengine/translator's packaged asset at the same pinned
 # release as the runtime the bundle carries, so the envelope's plan
 # format matches by construction.
 deno run --config "$SPIKE_HOST/deno.json" --frozen --allow-read --allow-write \

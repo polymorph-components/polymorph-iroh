@@ -1,6 +1,6 @@
 // The websocket bridge: turns the guest's synthetic datagrams (see
 // iroh-relay's wasi `datagram_pipe.rs`) into real websocket connections
-// through the polymorph-websocket sibling's deltic host module — the
+// through the polymorph-websocket sibling's polyengine host module — the
 // same browser-first code that serves the WIT package's host half,
 // running here as a plain library over the standard `WebSocket` global.
 //
@@ -13,7 +13,7 @@
 // Connections are keyed by the guest socket that carries them (one relay
 // connection = one synthetic socket = one websocket).
 
-import { Websocket } from "../../../.deps/websocket/js/deltic/websocket.ts";
+import { Websocket } from "../../../.deps/websocket/js/polyengine/websocket.ts";
 import type { OutgoingDatagram, UdpSocket } from "./sockets.ts";
 import { pushDatagram, registerBridge } from "./sockets.ts";
 import { describeErr } from "./errors.ts";
