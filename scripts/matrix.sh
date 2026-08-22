@@ -105,8 +105,8 @@ run_pair() {
 # per-component execution slot serialized whole task lifetimes, so the
 # detached pump task (alive with in-flight imports across export calls)
 # deadlocked every later export call (lann/jco#11, fix attempts in
-# lann/jco PR #27). host-deltic runs this surface under stock Deno
-# instead (see host-deltic/README.md); `just exam-deltic` is its gate.
+# lann/jco PR #27). host-polyengine runs this surface under stock Deno
+# instead (see host-polyengine/README.md); `just exam-polyengine` is its gate.
 
 run_pair "endpoint-relay-wasmtime-wasmtime" \
     timeout 120 "$EHOST" "$COMPOSED_WASM" --role server --relay "$RELAY_URL" \

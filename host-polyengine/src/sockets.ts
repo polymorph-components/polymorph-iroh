@@ -23,10 +23,10 @@
 //     socket. Scenario 1 asserts exactly that.
 //
 // A direct-path leg (real UDP over `Deno.listenDatagram`) is the natural
-// extension once deltic's wasi package grows p3 `wasi:sockets` providers
-// (lann/deltic#4); this file is where that provider would be wired.
+// extension once polyengine's wasi package grows p3 `wasi:sockets` providers
+// (polymorph-components/polyengine#4); this file is where that provider would be wired.
 
-import { ComponentException } from "@deltic/runtime/embedder";
+import { ComponentException } from "@polyengine/runtime/embedder";
 
 /** `wasi:sockets/types@0.3.0`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";

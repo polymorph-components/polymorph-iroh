@@ -20,7 +20,7 @@ Everything here is **unstable** (0.x), but [releases](../../releases) are
 **caret-honest**: within a minor line they stay backward-compatible, and
 anything breaking bumps the minor. Consumption is pinned at a release's
 commit — sibling checkouts and vendored WIT at pinned release commits,
-the release-pinned deltic/JSR graph — and bumped deliberately.
+the release-pinned polyengine/JSR graph — and bumped deliberately.
 
 ## What iroh is, layer by layer
 
@@ -207,8 +207,8 @@ superseded it; the history is in the git log.)
   while a UDP path finds the true one.
 - **Every pairing exercised, plus upstream interop**: the Wasmtime
   host (`host-wasmtime/`, the sibling host crates) runs authenticated
-  echoes on every wire through the stock relay, and the deltic JS host
-  (`host-deltic/`) runs the same surface on stock Deno.
+  echoes on every wire through the stock relay, and the polyengine JS host
+  (`host-polyengine/`) runs the same surface on stock Deno.
 
 To run it: build the components, hosts, and the upstream relay, then
 hand the server's printed endpoint ID to the client
@@ -249,12 +249,12 @@ task per bound endpoint owns all I/O, and wake-ups are event-driven in
 both directions — resource methods kick the pump to flush their
 mutations and park on wakers the pump fires (cross-task wakeups ride
 wit-bindgen's `inter-task-wakeup` channel, delivered by both hosts).
-The JS host for this surface is `host-deltic/`: it drives the endpoint
-component runtime-linked under [deltic](https://github.com/lann/deltic)
+The JS host for this surface is `host-polyengine/`: it drives the endpoint
+component runtime-linked under [polyengine](https://github.com/polymorph-components/polyengine)
 on stock Deno (no transpile step, no engine flag) — the jco host this
 repository ran previously blocked on an upstream jco scheduler defect
-(the detached-pump shape deltic's scheduler serves instead) and has
-retired. `just exam-deltic` runs
+(the detached-pump shape polyengine's scheduler serves instead) and has
+retired. `just exam-polyengine` runs
 its seven-scenario endpoint exam — bind + identity (including the
 no-UDP profile's `not-supported`), relay echo, the WebRTC upgrade,
 the issue #10 concurrency rows as passing assertions, the stream
@@ -263,8 +263,8 @@ terminal outcomes, idle survival, and teardown.
 `just matrix` runs every claimed pairing — the composed endpoint demo
 on every wire, cross-relay and upstream interop included, plus the
 surface's negative probes — against stock `iroh-relay` servers; `just
-bench` gates the measured claims; `just exam-deltic` gates the
-deltic-hosted endpoint surface; `just ci` is the full gate. `just
+bench` gates the measured claims; `just exam-polyengine` gates the
+polyengine-hosted endpoint surface; `just ci` is the full gate. `just
 interop-prod` (manual, internet-dependent) checks the production
 relays.
 
@@ -279,7 +279,7 @@ Tracked as issues; the headline ones:
   attribution and reachability probing, the native half of address
   discovery.
 - The jco browser leg (issue #10): resolved by moving the JS host to
-  deltic (`host-deltic/`), which serves the detached-pump shape jco's
+  polyengine (`host-polyengine/`), which serves the detached-pump shape jco's
   scheduler could not; the jco host and its scheduler-defect
   workarounds have retired. Root cause and partial upstream fix
   attempts remain recorded on lann/jco#11 and PR #27 for reference.

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+#!/usr/bin/env bash
 # Runs the iroh-blobs spike end to end: the pinned iroh-relay binary
-# (scripts/setup.sh), then the deltic host on stock Deno driving the
+# (scripts/setup.sh), then the polyengine host on stock Deno driving the
 # wasip2 guest — runtime-linked, no transpile step; the translator ships
-# in the pinned @deltic/translator package.
+# in the pinned @polyengine/translator package.
 # Reuses an already-running relay on 127.0.0.1:3340; kills only what it
 # started.
 set -euo pipefail

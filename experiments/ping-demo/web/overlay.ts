@@ -23,7 +23,7 @@ import {
   DataChannelOptions,
   PeerConnection,
   PeerConnectionConfig,
-} from "../../../.deps/webrtc/deltic-impl/src/webrtc.ts";
+} from "../../../.deps/webrtc/polyengine-impl/src/webrtc.ts";
 import type { IpSocketAddress, OutgoingDatagram, UdpSocket } from "../../iroh-relay-ws/host/sockets.ts";
 import {
   pushDatagram,

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Spike host harness deps: Playwright for the browser leg (the drivers themselves run on Deno under deltic).",
+  "description": "Spike host harness deps: Playwright for the browser leg (the drivers themselves run on Deno under polyengine).",
   "scripts": {
     "test:browser": "node browser-test.mjs"
   },

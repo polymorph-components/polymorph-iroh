@@ -4,7 +4,7 @@
 // this — consumers use the packaged endpoint component (or pass their own
 // bytes) and bring their own relay.
 
-// This file sits at host-deltic/src/repo.ts, so the repo root is two
+// This file sits at host-polyengine/src/repo.ts, so the repo root is two
 // levels up.
 const ROOT = new URL("../../", import.meta.url);
 

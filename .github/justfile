@@ -23,7 +23,7 @@ _step recipe:
         just {{recipe}}
     fi
 
-# The full gate: checks, the cross-host pairing matrix, the deltic
+# The full gate: checks, the cross-host pairing matrix, the polyengine
 # endpoint exam, and the measured-claims bench. The execution-model
 # probes are NOT here: what they assert about the host's async ABI is
 # now asserted by the endpoint surface itself on both hosts (see the
@@ -35,5 +35,5 @@ checks:
     @just gha::_step validate-wit
     @just gha::_step test
     @just gha::_step matrix
-    @just gha::_step exam-deltic
+    @just gha::_step exam-polyengine
     @just gha::_step bench

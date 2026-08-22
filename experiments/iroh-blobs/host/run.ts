@@ -3,10 +3,10 @@
 // WebRTC). The guest prints its own results; this driver adds a
 // watchdog and the shim/bridge counters.
 //
-// Runs on stock Deno; the translator is `@deltic/translator`'s packaged
+// Runs on stock Deno; the translator is `@polyengine/translator`'s packaged
 // asset, loaded through the module graph.
 
-import { defaultTranslator } from "@deltic/translator";
+import { defaultTranslator } from "@polyengine/translator";
 import { stats } from "./sockets.ts";
 import { bridgeStats } from "./bridge.ts";
 import { webrtcStats } from "./webrtc-bridge.ts";

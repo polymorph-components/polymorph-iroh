@@ -1,6 +1,6 @@
 // A hand-written TS facade for `polymorph:iroh/endpoint@0.1.0`, transcribed
-// from this repository's WIT (wit/iroh.wit) under the deltic embedder
-// conventions (contracts/embedder-api.md in the deltic repository):
+// from this repository's WIT (wit/iroh.wit) under the polyengine embedder
+// conventions (contracts/embedder-api.md in the polyengine repository):
 //
 //   * resource -> PascalCase class, methods camelCase, statics static
 //   * every export is Promise-shaped; `result<T, E>` in RETURN position

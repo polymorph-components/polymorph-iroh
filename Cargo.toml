@@ -16,12 +16,12 @@ publish = false
 # Sibling crates are consumed as git dependencies pinned at a commit, per
 # the siblings' own release practice; bumped deliberately.
 [workspace.dependencies]
-polymorph-tls-profile = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "e6f244c2136a1fdc8bd836aab05572620c3d3df4" }
-polymorph-tls-quic = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "e6f244c2136a1fdc8bd836aab05572620c3d3df4" }
-polymorph-webcrypto-guest = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "227d075a9f306764029dd6762fdab73c6cfc893f" }
-polymorph-webcrypto-wasmtime = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "227d075a9f306764029dd6762fdab73c6cfc893f" }
-wasmtime-webrtc-datachannels = { git = "https://github.com/polymorph-components/polymorph-webrtc-datachannels.git", rev = "0f991407c2698577df3d117789024c14be250bd6" }
-wasmtime-websocket = { git = "https://github.com/polymorph-components/polymorph-websocket.git", rev = "7c364c593d51a977f5f267711b06d0fb18cfc068" }
+polymorph-tls-profile = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
+polymorph-tls-quic = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
+polymorph-webcrypto-guest = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
+polymorph-webcrypto-wasmtime = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
+wasmtime-webrtc-datachannels = { git = "https://github.com/polymorph-components/polymorph-webrtc-datachannels.git", rev = "42f76c988c3356e62abf33af6a04f1daf8f0839c" }
+wasmtime-websocket = { git = "https://github.com/polymorph-components/polymorph-websocket.git", rev = "563aa33fc214920e80a2fec6019e91a127969a7a" }
 
 [profile.release]
 lto = true

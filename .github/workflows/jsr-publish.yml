@@ -1,4 +1,4 @@
-# Publish @polymorph/iroh (host-deltic) to JSR: build the endpoint
+# Publish @polymorph/iroh (host-polyengine) to JSR: build the endpoint
 # component from this tree, embed it as the package's base64 asset
 # module, and publish.
 #
@@ -28,6 +28,6 @@ jobs:
       - name: Build and embed the endpoint component
         run: |
           cargo build -p iroh-endpoint --target wasm32-wasip2 --release
-          deno run --allow-read=target --allow-write=host-deltic/src/endpoint_component.ts scripts/embed-endpoint-component.ts
+          deno run --allow-read=target --allow-write=host-polyengine/src/endpoint_component.ts scripts/embed-endpoint-component.ts
       - run: deno publish --allow-dirty
-        working-directory: host-deltic
+        working-directory: host-polyengine

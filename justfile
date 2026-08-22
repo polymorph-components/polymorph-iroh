@@ -18,9 +18,9 @@ build-components:
     cargo build -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2 --release
     mkdir -p target/components
     wac plug target/wasm32-wasip2/release/iroh_endpoint_demo.wasm --plug target/wasm32-wasip2/release/iroh_endpoint.wasm -o target/components/iroh-demo.wasm
-    # @polymorph/iroh's generated asset module (gitignored): host-deltic's
+    # @polymorph/iroh's generated asset module (gitignored): host-polyengine's
     # `deno check src` and the jsr publish need it on disk.
-    deno run --allow-read=target --allow-write=host-deltic/src/endpoint_component.ts scripts/embed-endpoint-component.ts
+    deno run --allow-read=target --allow-write=host-polyengine/src/endpoint_component.ts scripts/embed-endpoint-component.ts
 
 # Build the Wasmtime host binary the gates drive, and the native
 # interop peer. The exec-model probe driver is deliberately NOT here:
@@ -76,42 +76,42 @@ probes: build-components
 matrix: build
     ./scripts/matrix.sh
 
-# The deltic host's module graph + the node-datachannel addon (whose
+# The polyengine host's module graph + the node-datachannel addon (whose
 # install script needs an explicit grant). Idempotent.
-deltic-setup:
-    cd host-deltic && deno install --frozen --allow-scripts=npm:node-datachannel
+polyengine-setup:
+    cd host-polyengine && deno install --frozen --allow-scripts=npm:node-datachannel
 
-# The endpoint exam on the deltic host: the endpoint component
+# The endpoint exam on the polyengine host: the endpoint component
 # runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
 # upgrade, the issue #10 concurrency rows, teardown. See
-# host-deltic/README.md.
-exam-deltic: build-components deltic-setup
+# host-polyengine/README.md.
+exam-polyengine: build-components polyengine-setup
     #!/usr/bin/env bash
     set -euo pipefail
-    # One RESOLVED deltic version repo-wide (host-deltic/README.md "The
+    # One RESOLVED polyengine version repo-wide (host-polyengine/README.md "The
     # pin"): the exam is the natural fail-loud point, replacing the
-    # retired fetch-translator gate. host-deltic's published manifest
+    # retired fetch-translator gate. host-polyengine's published manifest
     # carries caret ranges, so specifier strings no longer pin identity;
-    # what module identity needs is that every @deltic/* package (except
-    # @deltic/protocol, versioned independently) RESOLVES to the same
+    # what module identity needs is that every @polyengine/* package (except
+    # @polyengine/protocol, versioned independently) RESOLVES to the same
     # version across both deno.locks — a translator/runtime split is
     # exactly the plan-format skew (or double-runtime WitError identity
     # break) the packaged translator exists to rule out.
-    v=$(jq -r '.jsr | keys[]' host-deltic/deno.lock \
+    v=$(jq -r '.jsr | keys[]' host-polyengine/deno.lock \
         experiments/iroh-relay-ws/host/deno.lock \
-        | grep '^@deltic/' | grep -v '^@deltic/protocol@' \
+        | grep '^@polyengine/' | grep -v '^@polyengine/protocol@' \
         | sed 's/.*@//' | sort -u)
     if [ "$(printf '%s\n' "$v" | wc -l)" != 1 ]; then
-        echo "deltic pin drift across deno.locks: $v" >&2
+        echo "polyengine pin drift across deno.locks: $v" >&2
         exit 1
     fi
     # ...and the RESOLVED graph must agree: one embedder instance, no raw
     # URLs (a sibling module's own config can silently split module
     # identity in a way no config grep catches; see the gate script).
-    deno info --json --config host-deltic/deno.json host-deltic/src/run-endpoint.ts \
-        | deno run scripts/deltic-identity-gate.ts
-    timeout 600 deno run -A --config host-deltic/deno.json --frozen \
-        host-deltic/src/run-endpoint.ts
+    deno info --json --config host-polyengine/deno.json host-polyengine/src/run-endpoint.ts \
+        | deno run scripts/polyengine-identity-gate.ts
+    timeout 600 deno run -A --config host-polyengine/deno.json --frozen \
+        host-polyengine/src/run-endpoint.ts
 
 # The measured-claims gate: per-wire latency/throughput medians,
 # asserted against budgets (issue #4).
@@ -126,11 +126,11 @@ interop-prod: build
 # The upstream-iroh-over-relay spike (issue #14): the unmodified iroh
 # crate (upstream main + the wasi-enablement patch branches, from the
 # lann/iroh and lann/net-tools polymorph-iroh branches) as a wasip2
-# component, runtime-linked under deltic on stock Deno — relay-only
-# bootstrap over the polymorph-websocket sibling's deltic module, then
+# component, runtime-linked under polyengine on stock Deno — relay-only
+# bootstrap over the polymorph-websocket sibling's polyengine module, then
 # live migration onto a WebRTC data channel through the synthetic-address
 # overlay (issue #26). Research probe attached to the issue, so manual:
-# not part of `ci`. The host's sibling deltic module imports await the
+# not part of `ci`. The host's sibling polyengine module imports await the
 # JSR migration (issue #83).
 iroh-relay-ws:
     cd experiments/iroh-relay-ws/guest && cargo build --release

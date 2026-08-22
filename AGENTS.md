@@ -61,7 +61,7 @@ record (and usually an issue to resolve), not a refactor.
   is a PR to the sibling.
 - **Anything browser-hosted must stay browser-compatible**: host-side JS
   uses only standard browser APIs (`crypto.subtle`, `RTCPeerConnection`,
-  `WebSocket`); Deno (via `host-deltic/`) is just the current runner.
+  `WebSocket`); Deno (via `host-polyengine/`) is just the current runner.
 - **Divergence between targets is resolved, not accumulated.** Apply the
   webcrypto sibling's portability ladder in order: design it out; enhance
   the deficient implementation (never crypto, never key-material
