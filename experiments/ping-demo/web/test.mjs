@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const SITE = fileURLToPath(new URL("./site", import.meta.url));
-const RELAY_BIN = fileURLToPath(new URL("../../../.deps/iroh/target/release/iroh-relay", import.meta.url));
+const RELAY_BIN = "iroh-relay";
 const RELAY_URL = "http://127.0.0.1:3340";
 const TIMEOUT = 60_000;
 

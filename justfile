@@ -9,7 +9,7 @@ mod gha '.github'
 default:
     @just --list
 
-# One-shot dependency setup (sibling + iroh checkouts).
+# One-shot dependency setup (pinned tools + the iroh-relay binary).
 setup:
     ./scripts/setup.sh
 
@@ -34,10 +34,6 @@ build-components:
 # by one shape misses entirely under the other.
 build-hosts:
     cargo build -p iroh-host-wasmtime -p iroh-peer --bin endpoint-demo --bin iroh-peer --profile host
-
-# Build the stock upstream relay server (used by the matrix and demos).
-relay-build:
-    cd .deps/iroh && cargo build --release -p iroh-relay --features server --bin iroh-relay
 
 build: build-components build-hosts
 
@@ -77,7 +73,7 @@ probes: build-components
     target/host/exec-model target/wasm32-wasip2/release/iroh_exec_model_guest.wasm
 
 # The cross-host pairing matrix: every demo pairing asserted in one run.
-matrix: build relay-build
+matrix: build
     ./scripts/matrix.sh
 
 # The deltic host's module graph + the node-datachannel addon (whose
@@ -89,7 +85,7 @@ deltic-setup:
 # runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
 # upgrade, the issue #10 concurrency rows, teardown. See
 # host-deltic/README.md.
-exam-deltic: build-components relay-build deltic-setup
+exam-deltic: build-components deltic-setup
     #!/usr/bin/env bash
     set -euo pipefail
     # One RESOLVED deltic version repo-wide (host-deltic/README.md "The
@@ -110,7 +106,7 @@ exam-deltic: build-components relay-build deltic-setup
         exit 1
     fi
     # ...and the RESOLVED graph must agree: one embedder instance, no raw
-    # URLs (a sibling .deps module's own config can silently split module
+    # URLs (a sibling module's own config can silently split module
     # identity in a way no config grep catches; see the gate script).
     deno info --json --config host-deltic/deno.json host-deltic/src/run-endpoint.ts \
         | deno run scripts/deltic-identity-gate.ts
@@ -119,7 +115,7 @@ exam-deltic: build-components relay-build deltic-setup
 
 # The measured-claims gate: per-wire latency/throughput medians,
 # asserted against budgets (issue #4).
-bench: build relay-build
+bench: build
     ./scripts/bench.sh
 
 # The endpoint against n0's production relays over wss (issue #2).
@@ -134,8 +130,9 @@ interop-prod: build
 # bootstrap over the polymorph-websocket sibling's deltic module, then
 # live migration onto a WebRTC data channel through the synthetic-address
 # overlay (issue #26). Research probe attached to the issue, so manual:
-# not part of `ci`. Needs the sibling checkouts from setup.sh.
-iroh-relay-ws: relay-build
+# not part of `ci`. The host's sibling deltic module imports await the
+# JSR migration (issue #83).
+iroh-relay-ws:
     cd experiments/iroh-relay-ws/guest && cargo build --release
     cd experiments/iroh-relay-ws/host && deno install --frozen --allow-scripts=npm:node-datachannel
     ./experiments/iroh-relay-ws/run.sh

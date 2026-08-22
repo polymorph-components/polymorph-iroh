@@ -1,7 +1,6 @@
 # Publish @polymorph/iroh (host-deltic) to JSR: build the endpoint
-# component from this tree (against the .deps sibling checkouts
-# scripts/setup.sh pins), embed it as the package's base64 asset module,
-# and publish.
+# component from this tree, embed it as the package's base64 asset
+# module, and publish.
 #
 # Auth is GitHub Actions OIDC: the package's GitHub-repository link on
 # jsr.io authorizes runs from this repository — no tokens. Dispatch after
@@ -26,10 +25,6 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.9.5"
-      - name: Install dependencies (.deps sibling checkouts)
-        run: ./scripts/setup.sh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
       - name: Build and embed the endpoint component
         run: |
           cargo build -p iroh-endpoint --target wasm32-wasip2 --release

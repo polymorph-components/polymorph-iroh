@@ -31,7 +31,7 @@ const GUEST_WASM = join(
   HOST_DIR,
   "../guest/target/wasm32-wasip2/release/iroh-blobs-guest.wasm",
 );
-const RELAY_BIN = join(ROOT, ".deps/iroh/target/release/iroh-relay");
+const RELAY_BIN = "iroh-relay";
 const TIMEOUT_MS = 90_000;
 
 const MIME = {

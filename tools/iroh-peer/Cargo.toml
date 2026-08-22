@@ -5,10 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-# The upstream implementation under test, from the pinned checkout.
-# Its workspace-inherited deps resolve against .deps/iroh's own root
-# (.deps is excluded from this workspace).
-iroh = { path = "../../.deps/iroh/iroh" }
+# The upstream implementation under test. The pin is co-pinned with the
+# `iroh-relay` binary scripts/setup.sh installs — the two must move
+# together.
+iroh = "=1.0.3"
 
 bytes = "1"
 anyhow = "1"
