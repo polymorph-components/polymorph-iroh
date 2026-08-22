@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 iroh-endpoint-core = { path = "../core" }
-polymorph-tls-quic = { path = "../.deps/tls/rust/quic" }
+polymorph-tls-quic.workspace = true
 noq-proto = { version = "=1.1.0", default-features = false }
 rustls = { version = "=0.23.43", default-features = false, features = ["std", "custom-provider"] }
 getrandom = "0.4"
@@ -20,4 +20,4 @@ wit-bindgen = { version = "0.59", features = ["async", "async-spawn", "inter-tas
 futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-polymorph-webcrypto-guest = { path = "../.deps/webcrypto/rust/guest" }
+polymorph-webcrypto-guest.workspace = true

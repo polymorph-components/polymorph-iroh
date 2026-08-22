@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Runs the iroh-relay-ws spike end to end: a stock iroh-relay server (from
-# .deps/iroh, built by the just recipe), then the polyengine host on stock
-# Deno driving the wasip2 guest — runtime-linked, no transpile step; the
-# translator ships inside the pinned @polyengine/translator package. Reuses an
-# already-running relay on 127.0.0.1:3340; kills only what it started.
+#!/usr/bin/env bash
+# Runs the iroh-relay-ws spike end to end: the pinned iroh-relay binary
+# (scripts/setup.sh), then the polyengine host on stock Deno driving the
+# wasip2 guest — runtime-linked, no transpile step; the translator ships
+# inside the pinned @polyengine/translator package. Reuses an already-running
+# relay on 127.0.0.1:3340; kills only what it started.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-RELAY_BIN=../../.deps/iroh/target/release/iroh-relay
+RELAY_BIN=iroh-relay
 RELAY_PID=""
 
 if ! curl -s -m 2 http://127.0.0.1:3340 >/dev/null 2>&1; then

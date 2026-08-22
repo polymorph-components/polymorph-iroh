@@ -30,8 +30,8 @@ import zlib
 
 
 def git(repo, *args):
-    # stderr is inherited: git's own message is the useful one when a path
-    # under .deps is not a checkout.
+    # stderr is inherited: git's own message is the useful one when the
+    # path is not a git checkout.
     return subprocess.run(
         ["git", "-C", repo, "-c", "core.quotePath=false", *args],
         check=True,

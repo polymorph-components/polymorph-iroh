@@ -216,10 +216,9 @@ hand the server's printed endpoint ID to the client
 wire):
 
 ```sh
-./scripts/setup.sh   # sibling + iroh checkouts under .deps, npm installs
+./scripts/setup.sh   # pinned tools + the iroh-relay binary, npm installs
 just build           # components + host binaries
-just relay-build
-.deps/iroh/target/release/iroh-relay --dev &   # ws on 127.0.0.1:3340
+iroh-relay --dev &   # ws on 127.0.0.1:3340
 WEBRTC_INCLUDE_LOOPBACK=1 target/host/endpoint-demo \
   target/components/iroh-demo.wasm \
   --role server --relay http://127.0.0.1:3340 --webrtc &

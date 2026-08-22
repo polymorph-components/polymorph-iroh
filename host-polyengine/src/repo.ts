@@ -1,6 +1,6 @@
 // Repo-internal exam machinery, publish-excluded (deno.json
 // `publish.exclude`): paths into this repository's build outputs and the
-// locally built upstream relay. The published package carries none of
+// pinned upstream relay binary. The published package carries none of
 // this — consumers use the packaged endpoint component (or pass their own
 // bytes) and bring their own relay.
 
@@ -12,9 +12,9 @@ const ROOT = new URL("../../", import.meta.url);
 export const ENDPOINT_WASM =
   new URL("target/wasm32-wasip2/release/iroh_endpoint.wasm", ROOT).pathname;
 
-/** The stock upstream relay, built by `just relay-build`. */
-export const RELAY_BIN =
-  new URL(".deps/iroh/target/release/iroh-relay", ROOT).pathname;
+/** The stock upstream relay binary, pinned and installed onto PATH by
+ * `scripts/setup.sh`. */
+export const RELAY_BIN = "iroh-relay";
 /** `iroh-relay --dev` serves ws on this address. */
 export const RELAY_PORT = 3340;
 export const RELAY_URL = `http://127.0.0.1:${RELAY_PORT}`;
@@ -74,16 +74,21 @@ export async function startRelay(): Promise<Relay> {
     console.error(`relay: adopting an already-listening 127.0.0.1:${RELAY_PORT}`);
     return { url: RELAY_URL, stop: () => Promise.resolve() };
   }
-  if (!await exists(RELAY_BIN)) {
-    throw new Error(
-      `iroh-relay not found at ${RELAY_BIN} — build it with \`just relay-build\`.`,
-    );
+  let child: Deno.ChildProcess;
+  try {
+    child = new Deno.Command(RELAY_BIN, {
+      args: ["--dev"],
+      stdout: "piped",
+      stderr: "piped",
+    }).spawn();
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      throw new Error(
+        `\`${RELAY_BIN}\` not found on PATH — install it with \`scripts/setup.sh\`.`,
+      );
+    }
+    throw e;
   }
-  const child = new Deno.Command(RELAY_BIN, {
-    args: ["--dev"],
-    stdout: "piped",
-    stderr: "piped",
-  }).spawn();
   // Drain the pipes so the relay never blocks on a full stdio buffer, and
   // so `stop()` can close them without an unresolved-read sanitizer hit.
   const sink = (r: ReadableStream<Uint8Array>) =>

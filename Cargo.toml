@@ -5,27 +5,32 @@ members = ["core", "endpoint", "endpoint-demo", "host-wasmtime", "experiments/ex
 # set. The wasm-only components build for their target through the
 # justfile recipes.
 default-members = ["core", "host-wasmtime"]
-# The sibling checkouts under .deps are their own workspaces; without the
-# exclusion cargo binds their workspace-inheriting members to this root.
-# experiments/udp-wake is likewise its own workspace: it needs no sibling
-# checkouts and builds with its own RUSTFLAGS (`--cfg tokio_unstable`).
-exclude = [".deps", "experiments/udp-wake"]
+# experiments/udp-wake is its own workspace: it builds with its own
+# RUSTFLAGS (`--cfg tokio_unstable`).
+exclude = ["experiments/udp-wake"]
 
 [workspace.package]
 edition = "2021"
 publish = false
 
-# Sibling host/guest crates come from git worktrees under .deps (created by
-# scripts/setup.sh at pinned commits), so this repository consumes the
-# siblings' current mainline surfaces without forking them in-tree.
+# Sibling crates are consumed as git dependencies pinned at a commit, per
+# the siblings' own release practice; bumped deliberately.
+[workspace.dependencies]
+polymorph-tls-profile = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
+polymorph-tls-quic = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
+polymorph-webcrypto-guest = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
+polymorph-webcrypto-wasmtime = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
+wasmtime-webrtc-datachannels = { git = "https://github.com/polymorph-components/polymorph-webrtc-datachannels.git", rev = "42f76c988c3356e62abf33af6a04f1daf8f0839c" }
+wasmtime-websocket = { git = "https://github.com/polymorph-components/polymorph-websocket.git", rev = "563aa33fc214920e80a2fec6019e91a127969a7a" }
+
 [profile.release]
 lto = true
 opt-level = "s"
 
 # The native host binaries (test harnesses, not shipped artifacts).
 # Fat LTO buys real size on the guest components but only link time
-# here — and CI relinks the hosts every run, since freshly checked-out
-# path deps are always mtime-dirty. Thin LTO parallelizes the links.
+# here, and the hosts relink on every gate run that touches anything
+# beneath them. Thin LTO parallelizes the links.
 [profile.host]
 inherits = "release"
 lto = "thin"

@@ -2,8 +2,8 @@
 // identity"): the run-endpoint graph must contain exactly ONE
 // @polyengine/runtime version and ZERO raw.githubusercontent modules.
 //
-// The failure this guards (seen live before the .deps pins converged on
-// JSR-consuming sibling revisions): a sibling host module's own
+// The failure this guards (seen live before the sibling pins converged on
+// one polyengine release): a sibling host module's own
 // package-shaped deno.json mapped @polyengine/runtime/embedder to a raw
 // pinned-tag URL, so the graph carried TWO embedder module instances and
 // `instanceof ComponentException` silently stopped holding across that sibling's

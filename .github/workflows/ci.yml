@@ -38,8 +38,6 @@ jobs:
           deno-version: "2.9.5"
 
       - name: Install dependencies
-        # Before the cargo cache step: the cache keys on the workspaces'
-        # lockfiles, and the .deps/iroh checkout must exist to be keyed.
         run: ./scripts/setup.sh
         # cargo-binstall resolves releases through api.github.com;
         # unauthenticated requests share a 60/hour per-IP limit that pooled
@@ -49,11 +47,11 @@ jobs:
 
       - name: Date sources by their last commit
         # Cargo decides a path dependency is stale when its sources are
-        # newer than its artifact, and a checkout (ours) or a clone
-        # (setup.sh's) stamps every file with the current time — so
-        # restored artifacts always lose to freshly written sources, and
-        # every in-repo crate recompiles however good the cache is.
-        run: ./scripts/restore-mtimes.py . .deps/*
+        # newer than its artifact, and a checkout stamps every file with
+        # the current time — so restored artifacts always lose to
+        # freshly written sources, and every in-repo crate recompiles
+        # however good the cache is.
+        run: ./scripts/restore-mtimes.py .
 
       - name: Cache the cargo home
         uses: Swatinem/rust-cache@v2
@@ -62,11 +60,11 @@ jobs:
           # The build directories are cached below instead. This action
           # saves them only after deleting every package that lives in the
           # repository — which is every crate the gate spends its time on,
-          # ours and the pinned checkouts' — and even for the packages it
-          # keeps it drops artifacts whose file name does not end in a
-          # build hash (cargo emits some, e.g. deps/libiroh_relay.rlib).
-          # A missing output makes cargo rebuild the unit and everything
-          # above it, so what survived rebuilt anyway.
+          # ours — and even for the packages it keeps it drops artifacts
+          # whose file name does not end in a build hash (cargo emits
+          # some, e.g. deps/libiroh_relay.rlib). A missing output makes
+          # cargo rebuild the unit and everything above it, so what
+          # survived rebuilt anyway.
           cache-targets: false
           # The action keys on workspace-MEMBER manifests and lockfiles;
           # the virtual workspace ROOT manifests are never read. But the
@@ -77,17 +75,15 @@ jobs:
           # "up-to-date", discarding everything the change forced it to
           # build, on every run (how #63's target/host tree recompiled
           # cold each time). Hash the roots into the key ourselves.
-          key: gate-inputs-${{ hashFiles('Cargo.toml', '.deps/iroh/Cargo.toml', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
+          key: gate-inputs-${{ hashFiles('Cargo.toml', 'justfile', '.github/justfile', '.github/workflows/ci.yml') }}
           # setup.sh has already installed the pinned tools into
           # ~/.cargo/bin when this restore runs; a cached bin/ would roll
           # them back to whatever versions main's cache holds. Excluding
           # bin/ also changes the cache path set, so entries saved with
           # bin/ included no longer match.
           cache-bin: false
-          # The upstream iroh-relay builds into its own checkout's target.
           workspaces: |
             . -> target
-            .deps/iroh -> target
           # Save only on main: PR jobs restore but never save, so PR
           # branches don't churn the cache entries every run depends on.
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -98,14 +94,13 @@ jobs:
         with:
           path: |
             target
-            .deps/iroh/target
           # Everything that invalidates artifacts wholesale is in the key:
           # the toolchain, the profiles, the resolved dependency versions,
           # the gate's cargo invocations, and the mtime policy the restored
           # artifacts were judged fresh against. A key that misses still
           # restores the newest entry under the prefix, so cargo rebuilds
           # what changed instead of everything.
-          key: build-dirs-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', '.deps/iroh/Cargo.toml', '.deps/iroh/Cargo.lock', 'justfile', '.github/justfile', '.github/workflows/ci.yml', 'scripts/restore-mtimes.py') }}
+          key: build-dirs-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'justfile', '.github/justfile', '.github/workflows/ci.yml', 'scripts/restore-mtimes.py') }}
           restore-keys: build-dirs-
 
       - name: Run the gate
@@ -120,5 +115,4 @@ jobs:
         with:
           path: |
             target
-            .deps/iroh/target
           key: ${{ steps.build-dirs.outputs.cache-primary-key }}
