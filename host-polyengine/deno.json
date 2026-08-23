@@ -10,10 +10,10 @@
     "exclude": ["jsr:@polyengine/*", "jsr:@polymorph/*"]
   },
   "imports": {
-    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@^0.5.0/embedder",
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@^0.5.1/embedder",
     "@polyengine/protocol": "jsr:@polyengine/protocol@^0.2.2",
-    "@polyengine/translator": "jsr:@polyengine/translator@^0.5.0",
-    "@polyengine/wasi": "jsr:@polyengine/wasi@^0.5.0",
+    "@polyengine/translator": "jsr:@polyengine/translator@^0.5.1",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@^0.5.1",
     "@polymorph/webcrypto": "jsr:@polymorph/webcrypto@^0.5.0",
     "@polymorph/websocket": "jsr:@polymorph/websocket@^0.5.0",
     "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@^0.5.0"
