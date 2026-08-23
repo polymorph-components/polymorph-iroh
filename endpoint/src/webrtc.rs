@@ -141,7 +141,7 @@ async fn next_signal(
 ) -> Result<Option<Signal>, Error> {
     loop {
         let payload = wait_until(shared, move |st| {
-            if st.is_closed_or_dead() {
+            if st.is_closed() {
                 return Some(Err(Error::Closed));
             }
             if let Some(payload) = st.pop_signal_inbox(peer) {

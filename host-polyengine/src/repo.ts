@@ -50,6 +50,12 @@ export async function endpointComponentBytes(): Promise<Uint8Array> {
 
 export interface Relay {
   readonly url: string;
+  /**
+   * Whether this run spawned the relay process. An adopted relay
+   * (`false`) is somebody else's: `stop()` does nothing, so a scenario
+   * that needs the relay to actually go away must skip.
+   */
+  readonly owned: boolean;
   stop(): Promise<void>;
 }
 
@@ -67,12 +73,13 @@ async function portOpen(port: number): Promise<boolean> {
  * Spawn `iroh-relay --dev` (ws on 127.0.0.1:3340) and wait for it to accept.
  *
  * If something is already listening on the port we adopt it rather than
- * racing a second binder.
+ * racing a second binder. Each call spawns its own process, so a stopped
+ * relay is restarted by calling this again.
  */
 export async function startRelay(): Promise<Relay> {
   if (await portOpen(RELAY_PORT)) {
     console.error(`relay: adopting an already-listening 127.0.0.1:${RELAY_PORT}`);
-    return { url: RELAY_URL, stop: () => Promise.resolve() };
+    return { url: RELAY_URL, owned: false, stop: () => Promise.resolve() };
   }
   let child: Deno.ChildProcess;
   try {
@@ -101,6 +108,7 @@ export async function startRelay(): Promise<Relay> {
       console.error(`relay: iroh-relay --dev listening on ${RELAY_URL} (pid ${child.pid})`);
       return {
         url: RELAY_URL,
+        owned: true,
         stop: async () => {
           try {
             child.kill("SIGTERM");

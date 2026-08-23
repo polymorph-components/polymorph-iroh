@@ -117,6 +117,21 @@ const DATAGRAM_CEILING = 3900;
 // this hold. Real wall time — the exam has no virtual clock.
 const IDLE_HOLD_MS = 35_000;
 
+// How long the relay-outage scenario (issue #88) keeps the relay down.
+// Real wall time, and deliberately well inside noq's 30s idle timeout:
+// the QUIC connection must SURVIVE the outage, so the hold plus the
+// redial backoff's ceiling (endpoint_impl.rs `REDIAL_MAX_DELAY`) plus
+// the handshake has to stay under it.
+const OUTAGE_HOLD_MS = 8_000;
+
+// The budget for the post-outage echo: one redial's backoff ceiling plus
+// the reconnect handshake plus the round trip, generously.
+const OUTAGE_RECOVERY_MS = 20_000;
+
+// How long redials are left in flight before the endpoints are closed,
+// so teardown happens with a relay dial pending.
+const OUTAGE_TEARDOWN_MS = 2_000;
+
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
  * budget is per-shape because the shapes lose the race at very different
@@ -470,11 +485,168 @@ async function echoRoundtrip(conn: Connection, sconn: Connection, what: string):
   return await deadline(readAll(crecv), 30_000, `${what}: client read echo`);
 }
 
+// --- the relay-outage probe (issue #88) --------------------------------------
+
+/**
+ * The relay lifetime the outage probe drives. `stop`/`start` are the
+ * harness's own relay process; `url` is stable across a restart (the
+ * relay always returns on `RELAY_PORT`).
+ */
+interface RelayControl {
+  url(): string;
+  stop(): Promise<void>;
+  start(): Promise<void>;
+}
+
+interface OutageReport {
+  readonly prePath: PathKind;
+  readonly preEcho: string;
+  /** Whether the port really stopped accepting while the relay was down. */
+  readonly wentDown: boolean;
+  readonly clientState: ConnectionState;
+  readonly serverState: ConnectionState;
+  readonly postEcho: string;
+  readonly recoveryMs: number;
+  /** The echo on a connection dialed AFTER the outage. */
+  readonly freshEcho: string;
+  /** Guest traps raised while the endpoints closed with redials pending. */
+  readonly teardownPanics: string[];
+  /** Guest traps raised before teardown (the RefCell borrow hazard). */
+  readonly priorPanics: number;
+}
+
+/**
+ * One relay-outage probe: establish a relay-carried connection, take the
+ * relay away for `OUTAGE_HOLD_MS`, bring it back, and require that the
+ * connection resumed, that the endpoint still dials, and that closing it
+ * with redials in flight raises no trap. A bricked endpoint comes back
+ * as a report whose fields fail the scenario's checks; only host-side
+ * noise throws.
+ */
+async function outageProbeOnce(control: RelayControl): Promise<OutageReport> {
+  const server = await newEndpointInstance({ label: "outage-server" });
+  const client = await newEndpointInstance({ label: "outage-client" });
+  const bindOptions = { alpns: [ALPN], relayUrl: control.url(), webrtc: false };
+  const sep = await deadline(bindEndpoint(server, bindOptions), 30_000, "server bind");
+  const cep = await deadline(bindEndpoint(client, bindOptions), 30_000, "client bind");
+  try {
+    return await outageProbeBody(control, sep, cep);
+  } catch (err) {
+    // An attempt that throws still owns two bound endpoints, and their
+    // pumps would go on redialing through every later scenario.
+    await closeQuietly(cep, "client close after a failed outage attempt");
+    await closeQuietly(sep, "server close after a failed outage attempt");
+    throw err;
+  }
+}
+
+/** Close an endpoint without letting its own failure mask another. */
+async function closeQuietly(ep: Endpoint, what: string): Promise<void> {
+  try {
+    await deadline(ep.close(), 15_000, what);
+  } catch { /* the endpoint may already be dead; the caller is unwinding */ }
+}
+
+async function outageProbeBody(
+  control: RelayControl,
+  sep: Endpoint,
+  cep: Endpoint,
+): Promise<OutageReport> {
+  const serverId = await sep.id();
+  const addrs: TransportAddr[] = [{ kind: "relay", value: control.url() }];
+  const conn = await deadline(
+    cep.connect({ endpointId: serverId, addrs }, ALPN),
+    60_000,
+    "connect",
+  );
+  const sconn = await deadline(sep.accept(), 60_000, "accept");
+  const preEcho = await echoRoundtrip(conn, sconn, "pre-outage echo");
+  const prePath = await conn.path();
+
+  await control.stop();
+  let wentDown = false;
+  for (let i = 0; i < 100; i++) {
+    if (!await portListening(RELAY_PORT)) {
+      wentDown = true;
+      break;
+    }
+    await settle(100);
+  }
+
+  // The outage proper: no export call in flight, so the guests' pumps
+  // alone drive the redials, and no keep-alive can reach either peer.
+  await settle(OUTAGE_HOLD_MS);
+  await control.start();
+
+  const clientState = await conn.state();
+  const serverState = await sconn.state();
+  const alive = clientState === "open" && serverState === "open";
+  const startedRecovery = performance.now();
+  // The echo does not wait for the reconnection: it is written into a
+  // connection whose transmits are being dropped, and QUIC's loss
+  // recovery delivers it once the redial lands.
+  const postEcho = alive
+    ? await deadline(
+      echoRoundtrip(conn, sconn, "post-outage echo"),
+      OUTAGE_RECOVERY_MS,
+      "post-outage echo",
+    )
+    : "";
+  const recoveryMs = performance.now() - startedRecovery;
+
+  // The anti-brick regression: a fresh dial on the SAME endpoints.
+  let freshEcho = "";
+  if (alive) {
+    const fresh = await deadline(
+      cep.connect({ endpointId: serverId, addrs }, ALPN),
+      60_000,
+      "post-outage connect",
+    );
+    const freshServer = await deadline(sep.accept(), 60_000, "post-outage accept");
+    freshEcho = await echoRoundtrip(fresh, freshServer, "post-outage fresh echo");
+    await fresh.close(CLOSE_CODE, CLOSE_REASON);
+    await conn.close(CLOSE_CODE, CLOSE_REASON);
+  }
+
+  // Teardown with redials pending: take the relay away again, let the
+  // backoff arm a dial, and close both endpoints on top of it.
+  await control.stop();
+  await settle(OUTAGE_TEARDOWN_MS);
+  const priorPanics = takeGuestPanics().length;
+  await deadline(cep.close(), 15_000, "client close mid-redial");
+  await deadline(sep.close(), 15_000, "server close mid-redial");
+  await settle(500);
+  const teardownPanics = takeGuestPanics();
+  await control.start();
+
+  return {
+    prePath,
+    preEcho,
+    wentDown,
+    clientState,
+    serverState,
+    postEcho,
+    recoveryMs,
+    freshEcho,
+    teardownPanics,
+    priorPanics,
+  };
+}
+
 async function main(): Promise<number> {
   installPanicWatchdog();
   console.log("iroh endpoint exam (polyengine / stock Deno)");
 
-  const relay = await startRelay();
+  let relay = await startRelay();
+  // The outage scenario replaces the relay process; every later use
+  // reads this binding, and the URL is the same across a restart.
+  const relayControl: RelayControl = {
+    url: () => relay.url,
+    stop: () => relay.stop(),
+    start: async () => {
+      relay = await startRelay();
+    },
+  };
   try {
     // -- 1 -------------------------------------------------------------------
     await scenario(1, "bind + identity (webcrypto ed25519 path)", async (v) => {
@@ -785,9 +957,70 @@ async function main(): Promise<number> {
     );
 
     // -- 7 -------------------------------------------------------------------
+    await scenario(
+      7,
+      "relay outage: the connection survives it and the endpoint stays usable",
+      async (v) => {
+        if (!relay.owned) {
+          v.status = "BLOCKED";
+          v.detail = "the relay was pre-existing and adopted, so this run cannot stop it";
+          return;
+        }
+        let r: OutageReport | undefined;
+        let lastError = "";
+        // Two attempts only: each costs the full outage in wall time,
+        // and the two handshakes it runs lose the RefCell race rarely.
+        const attempts = 2;
+        for (let attempt = 1; attempt <= attempts && !r; attempt++) {
+          takeGuestPanics();
+          try {
+            r = await outageProbeOnce(relayControl);
+          } catch (err) {
+            lastError = describeError(err);
+            console.log(`  attempt ${attempt}/${attempts} failed: ${lastError}`);
+            // The relay is left running whatever the attempt did with it.
+            if (!await portListening(RELAY_PORT)) await relayControl.start();
+            await settle(100);
+          }
+        }
+        if (!r) throw new Error(`no attempt completed; last: ${lastError}`);
+        if (r.priorPanics > 0) {
+          v.notes.push(`${r.priorPanics} guest panic(s) before teardown (RefCell borrow hazard)`);
+        }
+        check(v, r.preEcho === MESSAGE.toUpperCase(), "a pre-outage echo round-trip completed");
+        check(v, r.prePath === "relay", "the connection rode the relay wire");
+        check(v, r.wentDown, `the relay stopped accepting on ${RELAY_PORT}`);
+        check(
+          v,
+          r.clientState === "open" && r.serverState === "open",
+          `both connections outlived ${OUTAGE_HOLD_MS} ms without a relay ` +
+            `(client ${r.clientState}, server ${r.serverState})`,
+        );
+        check(
+          v,
+          r.postEcho === MESSAGE.toUpperCase(),
+          `an echo completed after the relay returned (${r.recoveryMs.toFixed(0)} ms)`,
+        );
+        check(
+          v,
+          r.freshEcho === MESSAGE.toUpperCase(),
+          "a FRESH dial on the same endpoints succeeded after the outage",
+        );
+        check(
+          v,
+          r.teardownPanics.length === 0,
+          `no guest trap closing the endpoints with redials in flight ` +
+            `(${r.teardownPanics.join("; ")})`,
+        );
+        v.detail = `survived ${(OUTAGE_HOLD_MS / 1000).toFixed(0)} s without a relay; ` +
+          `echo back ${r.recoveryMs.toFixed(0)} ms after it returned, then a fresh dial`;
+      },
+    );
+
+    // -- 8 -------------------------------------------------------------------
     // Last by necessity: this scenario stops the relay every later
     // scenario would need.
-    await scenario(7, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(8, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),

@@ -29,21 +29,12 @@ just exam-polyengine
 
 builds the endpoint component and the stock relay, installs the leg's
 pinned module graph + the `node-datachannel` addon
-(`just polyengine-setup`, idempotent), fetches the sha256-pinned translator
-release asset, and runs `src/run-endpoint.ts` — five scenarios:
-
-1. **bind + identity** — `identity-generate` → `new
-   EndpointOptions(identity)` → `Endpoint.bind`; the Ed25519 identity
-   minted through `polymorph:webcrypto`; three export calls against the
-   live detached pump (the lann/jco#11 shape).
-2. **relay echo** — two endpoint instances, QUIC handshake and an
-   authenticated echo over a stock `iroh-relay --dev`.
-3. **WebRTC upgrade** — a relay-dialed connection moves onto the data
-   channel; `connection.path` reports the move.
-4. **concurrency proof points** — 40 export calls against two live
-   pumps (jco#11) and `accept` parked before the dial and woken by the
-   pump (jco#13): issue #10's rows as passing assertions.
-5. **teardown** — idempotent close, no guest traps, the relay reaped.
+(`just polyengine-setup`, idempotent), and runs the scenarios in
+`src/run-endpoint.ts` — the endpoint lifecycle (bind + identity through
+idempotent teardown), the relay and WebRTC wires, the issue #10
+concurrency rows, and the liveness/recovery rows (idle survival, relay
+outage). Each scenario names its assertions where it lives; the exam's
+summary line is the inventory.
 
 The exam retries the handshake-shaped scenarios a bounded number of
 times: `endpoint/src/endpoint_impl.rs`'s shared state has a RefCell
