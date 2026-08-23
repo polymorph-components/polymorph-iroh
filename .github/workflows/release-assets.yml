@@ -1,0 +1,46 @@
+# Attach the built endpoint component to a GitHub release, so consumers
+# that compose iroh_endpoint.wasm themselves (wac plug into their own
+# components) can fetch a digest-pinned artifact instead of cloning this
+# repo and building from source — the same consumer story polyengine's
+# releases give its translator shim.
+#
+# Runs automatically when a release is published; `workflow_dispatch`
+# with a tag backfills an existing release (e.g. one cut before this
+# workflow existed). The build is the exact recipe jsr-publish.yml embeds
+# into @polymorph/iroh, at the release's own tag, on the toolchain
+# rust-toolchain.toml pins there. `--clobber` makes re-runs converge on
+# the latest build instead of failing on the existing asset.
+name: release-assets
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach assets to.
+        required: true
+        type: string
+permissions:
+  contents: write # gh release upload
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+      - name: Install Rust toolchain
+        # rust-toolchain.toml pins the version and wasm target.
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Build the endpoint component
+        run: cargo build -p iroh-endpoint --target wasm32-wasip2 --release
+      - name: Attach the component and its digest to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          cp target/wasm32-wasip2/release/iroh_endpoint.wasm .
+          sha256sum iroh_endpoint.wasm > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" iroh_endpoint.wasm SHA256SUMS --clobber
