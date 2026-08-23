@@ -159,8 +159,11 @@ pub(crate) struct State {
     /// The relay pool: the home relay (key `HOME_RELAY`) plus foreign
     /// relays opened for dialing or signaling, keyed by their
     /// normalized URL in `relay_keys`. A dead foreign relay leaves the
-    /// pool; routes naming it drop transmits until their connections
-    /// idle out.
+    /// pool and its URL mapping ([`State::retire_relay`]), so the next
+    /// dial through that URL opens a fresh connection; routes naming
+    /// the retired key drop transmits until their connections idle out.
+    /// The home relay's entry is replaced in place by a redial and its
+    /// URL mapping never leaves.
     relay_pool: HashMap<u32, Rc<RelayConn>>,
     relay_keys: HashMap<String, u32>,
     /// URLs an in-flight `connect` is currently opening; a second
@@ -190,9 +193,6 @@ pub(crate) struct State {
     next_channel_id: u32,
     closed: bool,
     closed_at: Option<Instant>,
-    /// Set when the relay connection died; every operation fails from
-    /// then on.
-    dead: Option<String>,
     /// Wakers parked by `wait_until` futures, drained and fired by
     /// `wake_waiters`.
     waiters: Vec<Waker>,
@@ -210,9 +210,30 @@ enum RouteWire {
     Channel(u32),
 }
 
-/// The home relay's pool key; its death kills the endpoint, where a
-/// foreign relay's death only starves the routes that named it.
+/// The home relay's pool key. A wire failure there is redialed by the
+/// pump under [`redial_delay`]'s backoff and the key is reoccupied,
+/// where a foreign relay's failure retires the relay and starves the
+/// routes that named it until a later dial reopens it.
 const HOME_RELAY: u32 = 0;
+
+/// The first delay before a home-relay redial, doubled at every failed
+/// attempt up to [`REDIAL_MAX_DELAY`].
+const REDIAL_MIN_DELAY: Duration = Duration::from_millis(10);
+
+/// The ceiling the redial backoff doubles up to; attempts are
+/// unbounded. Upstream iroh's relay actor caps at 16s
+/// (`src/socket/transports/relay/actor.rs`, `build_backoff`); this
+/// endpoint deliberately narrows the cap, because the outage it must
+/// recover from quickly is a browser page returning to the foreground —
+/// recovery latency there is what the cap buys, and the long outages a
+/// larger cap serves are not what this design optimizes for.
+const REDIAL_MAX_DELAY: Duration = Duration::from_secs(5);
+
+/// How long a home-relay connection must have been registered for its
+/// failure to count as a sound connection lost, rather than a relay
+/// that cannot be reached: an older connection is redialed at once and
+/// restarts the backoff, a younger one consumes the next delay.
+const REDIAL_ESTABLISHED: Duration = Duration::from_secs(10);
 
 struct ChannelEntry {
     wire: Rc<ChannelWire>,
@@ -310,7 +331,6 @@ impl State {
             next_channel_id: 0,
             closed: false,
             closed_at: None,
-            dead: None,
             waiters: Vec::new(),
             pump_waker: None,
             pump_kicked: false,
@@ -370,8 +390,8 @@ impl State {
 
     /// True once no operation can succeed anymore; signaling sessions
     /// poll this to abandon their dance.
-    pub(crate) fn is_closed_or_dead(&self) -> bool {
-        self.closed || self.dead.is_some()
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed
     }
 
     /// Claim the signaling slot for `peer`, recording the relay the
@@ -418,7 +438,7 @@ impl State {
         peer: [u8; 32],
         wire: Rc<ChannelWire>,
     ) -> Result<(), Error> {
-        if self.is_closed_or_dead() {
+        if self.closed {
             wire.close();
             return Err(Error::Closed);
         }
@@ -440,6 +460,16 @@ impl State {
         Ok(())
     }
 
+    /// Retire a relay: it leaves the pool AND its URL mapping, so a
+    /// later `ensure_relay` for that URL opens a fresh connection
+    /// instead of handing out a key with no pool entry behind it.
+    /// Returns the retired connection, for the caller to close.
+    fn retire_relay(&mut self, key: u32) -> Option<Rc<RelayConn>> {
+        let conn = self.relay_pool.remove(&key);
+        self.relay_keys.retain(|_, mapped| *mapped != key);
+        conn
+    }
+
     /// Retire a dead channel; a peer routed over it moves back to the
     /// relay it was signaled through (its connections survive the move
     /// or idle out).
@@ -451,15 +481,6 @@ impl State {
             if self.routes.get(synthetic) == Some(&RouteWire::Channel(id)) {
                 self.routes
                     .insert(*synthetic, RouteWire::Relay(entry.fallback_relay));
-            }
-        }
-    }
-
-    fn mark_dead(&mut self, reason: &str) {
-        self.dead = Some(reason.to_string());
-        for entry in self.conns.values_mut() {
-            if entry.error.is_none() {
-                entry.error = Some(Error::Closed);
             }
         }
     }
@@ -760,17 +781,38 @@ fn on_event(
 }
 
 /// The endpoint's I/O task: relayed datagrams in and out, noq's timers,
-/// and the flush after every kick. The two long-lived import futures stay
-/// pinned across iterations and are resolved before the task returns (an
-/// in-flight import is a component-model subtask; jco traps on cancelling
-/// one — the teardown discipline). Channel receives live in a
-/// persistent set with the same discipline: closing every channel
-/// resolves them before the task returns.
-async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
+/// the flush after every kick, and the home relay's redial. The two
+/// long-lived import futures stay pinned across iterations and are
+/// resolved before the task returns (an in-flight import is a
+/// component-model subtask; jco traps on cancelling one — the teardown
+/// discipline). Channel receives live in a persistent set with the same
+/// discipline: closing every channel resolves them before the task
+/// returns. The redial slot is the exception: an in-flight relay dial is
+/// dropped at teardown rather than awaited.
+///
+/// The two kinds of drop are not the same hazard. Dropping an in-flight
+/// import to settle a select race INSIDE a live task wedges the host,
+/// which sees an activation that never parks, finishes, or traps (see
+/// [`redial_home`]). Dropping one as the whole task ends is the
+/// host-driven cancellation `ensure_relay` already takes when its call
+/// is cancelled, and is sound.
+///
+/// A failed home relay retires its connection from the pool and arms a
+/// redial; the pump ends only on close, never on a wire failure.
+/// `home_url` and `identity` are what a redial re-runs `RelayConn::connect`
+/// with.
+async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>, home_url: String, identity: Rc<Identity>) {
     let mut udp_recv = pin!(udp_receive(udp.clone()).fuse());
     let mut tick = pin!(monotonic_clock::wait_for(TICK_NS).fuse());
     let mut channel_recvs: FuturesUnordered<ChannelRecvFuture> = FuturesUnordered::new();
     let mut relay_recvs: FuturesUnordered<RelayRecvFuture> = FuturesUnordered::new();
+    // The home relay's redial, armed only while the pool has no home
+    // entry; terminated is the healthy state.
+    let mut redial: futures::future::Fuse<RedialFuture> = futures::future::Fuse::terminated();
+    let mut redial_attempt: u32 = 0;
+    // When the pool's home entry was registered: `bind` connected it
+    // immediately before spawning this task.
+    let mut home_since: Option<Instant> = Some(Instant::now());
     // Set by the tick arm: wake the waiters even without drain progress,
     // so deadline conditions are re-checked at tick granularity.
     let mut force_wake = false;
@@ -788,14 +830,21 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
             match item {
                 Some((key, peer, datagram)) => {
                     let conn = shared.borrow().relay_pool.get(&key).cloned();
-                    // A retired relay's queued transmits are lost, as is
-                    // a failed foreign send; the home relay's failure is
-                    // the endpoint's death.
+                    // The datagram is lost either way — a retired
+                    // relay has no wire and a failed send delivered
+                    // nothing — and QUIC's loss recovery owns the
+                    // retransmit. A home-relay send failure additionally
+                    // retires the connection and arms the redial, unless
+                    // the pool has already moved on from it.
                     if let Some(conn) = conn {
-                        if conn.send_datagram(&peer, &datagram).await.is_err() && key == HOME_RELAY
+                        if conn.send_datagram(&peer, &datagram).await.is_err()
+                            && key == HOME_RELAY
+                            && retire_home(&shared, &conn)
                         {
-                            shared.borrow_mut().mark_dead("relay send failed");
-                            break 'pump;
+                            let delay = next_redial_delay(&mut redial_attempt, &mut home_since);
+                            redial = redial_home(home_url.clone(), identity.clone(), delay)
+                                .boxed_local()
+                                .fuse();
                         }
                     }
                 }
@@ -852,9 +901,6 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
 
         {
             let st = shared.borrow();
-            if st.dead.is_some() {
-                break 'pump;
-            }
             if st.closed {
                 let all_drained = st.conns.values().all(|e| e.drained || e.error.is_some());
                 let lingered = st
@@ -869,13 +915,21 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
 
         select_biased! {
             event = next_relay_event(&mut relay_recvs).fuse() => {
-                let (key, result) = event;
+                let (key, conn, result) = event;
+                // Whether the connection this receive read is still the
+                // pool's: a redial replaces the home entry under the
+                // same key, so a future armed against the OLD connection
+                // may resolve afterwards.
+                let current = is_pool_current(&shared, key, &conn);
                 match result {
                     Ok(datagram) => {
                         // Re-arm before handling so the wire keeps
-                        // flowing; a retired relay stays retired.
-                        let conn = shared.borrow().relay_pool.get(&key).cloned();
-                        if let Some(conn) = conn {
+                        // flowing. Only the pool's current connection is
+                        // re-armed — a second receive on a replaced one
+                        // would double up on its successor's key — while
+                        // the datagram itself is genuine, relay-source-
+                        // authenticated data and is handled either way.
+                        if current {
                             relay_recvs.push(Box::pin(relay_receive(key, conn)));
                         }
                         if datagram.payload.first() == Some(&SIGNAL_PREFIX) {
@@ -886,14 +940,26 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
                                 .handle_relay_datagram(key, datagram.source, datagram.payload);
                         }
                     }
-                    Err(err) => {
-                        if key == HOME_RELAY {
-                            shared.borrow_mut().mark_dead(&err);
-                            break 'pump;
+                    // A failure on a connection the pool has already
+                    // moved on from is stale: the replacement is live,
+                    // or a redial is already in flight.
+                    Err(_) if !current => {}
+                    Err(_) if key == HOME_RELAY => {
+                        if retire_home(&shared, &conn) {
+                            let delay = next_redial_delay(&mut redial_attempt, &mut home_since);
+                            redial = redial_home(home_url.clone(), identity.clone(), delay)
+                                .boxed_local()
+                                .fuse();
                         }
+                    }
+                    Err(_) => {
                         // A foreign relay died; routes naming it starve
-                        // and their connections idle out.
-                        shared.borrow_mut().relay_pool.remove(&key);
+                        // and their connections idle out, and the URL
+                        // mapping goes with the pool entry so a later
+                        // dial through it reconnects.
+                        if let Some(conn) = shared.borrow_mut().retire_relay(key) {
+                            conn.close();
+                        }
                     }
                 }
             },
@@ -935,6 +1001,37 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
                     }
                 }
             },
+            opened = redial => {
+                match opened {
+                    Ok(conn) => {
+                        // The home URL already maps to HOME_RELAY in
+                        // `relay_keys`; reoccupying the pool key is the
+                        // whole reconnection, and every route naming it
+                        // resumes unchanged.
+                        let conn = Rc::new(conn);
+                        let mut st = shared.borrow_mut();
+                        if st.closed {
+                            drop(st);
+                            conn.close();
+                        } else {
+                            st.relay_pool.insert(HOME_RELAY, conn.clone());
+                            st.wake_waiters();
+                            drop(st);
+                            relay_recvs.push(Box::pin(relay_receive(HOME_RELAY, conn)));
+                            home_since = Some(Instant::now());
+                            redial_attempt = 0;
+                        }
+                    }
+                    Err(_) => {
+                        if !shared.borrow().closed {
+                            let delay = next_redial_delay(&mut redial_attempt, &mut home_since);
+                            redial = redial_home(home_url.clone(), identity.clone(), delay)
+                                .boxed_local()
+                                .fuse();
+                        }
+                    }
+                }
+            },
             _ = kicked(&shared).fuse() => {
                 // A method mutated state needing a flush; the loop top
                 // drains and transmits it.
@@ -947,8 +1044,8 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
         }
     }
 
-    // No waiter sleeps past the pump: every break path set its terminal
-    // state (dead, or closed and drained/lingered) before arriving here.
+    // No waiter sleeps past the pump: the only break path set its
+    // terminal state (closed and drained/lingered) before arriving here.
     shared.borrow_mut().wake_waiters();
 
     // Resolve the pinned imports before the task ends: close every pool
@@ -986,40 +1083,115 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>) {
     }
 }
 
-type RelayRecvFuture = futures::future::LocalBoxFuture<
-    'static,
-    (
-        u32,
-        Result<iroh_endpoint_core::relay_frames::Datagram, String>,
-    ),
->;
-
-/// One relay receive, tagged with the relay's pool key.
-async fn relay_receive(
-    key: u32,
-    conn: Rc<RelayConn>,
-) -> (
+type RelayRecvResult = (
     u32,
+    Rc<RelayConn>,
     Result<iroh_endpoint_core::relay_frames::Datagram, String>,
-) {
+);
+
+type RelayRecvFuture = futures::future::LocalBoxFuture<'static, RelayRecvResult>;
+
+/// One relay receive, tagged with the relay's pool key AND the
+/// connection it read: a redial replaces the pool's home entry under
+/// the same key, so the key alone does not say which connection a
+/// completed receive speaks for.
+async fn relay_receive(key: u32, conn: Rc<RelayConn>) -> RelayRecvResult {
     let result = conn.recv_datagram().await;
-    (key, result)
+    (key, conn, result)
 }
 
 /// The next completed relay receive, or pending-forever while the pool
-/// is empty (only during teardown; the home relay is armed before the
-/// first select). The set owns the in-flight import futures.
-async fn next_relay_event(
-    set: &mut FuturesUnordered<RelayRecvFuture>,
-) -> (
-    u32,
-    Result<iroh_endpoint_core::relay_frames::Datagram, String>,
-) {
+/// is empty (during teardown, or while the home relay is being
+/// redialed). The set owns the in-flight import futures.
+async fn next_relay_event(set: &mut FuturesUnordered<RelayRecvFuture>) -> RelayRecvResult {
     if set.is_empty() {
         std::future::pending().await
     } else {
         set.next().await.expect("a non-empty set yields an item")
     }
+}
+
+/// Whether `conn` is still the connection the pool holds under `key`.
+fn is_pool_current(shared: &Shared, key: u32, conn: &Rc<RelayConn>) -> bool {
+    shared
+        .borrow()
+        .relay_pool
+        .get(&key)
+        .is_some_and(|pooled| Rc::ptr_eq(pooled, conn))
+}
+
+/// Take the failed home relay out of the pool and close it, so its
+/// pending receive resolves and leaves the pump's set. Its `relay_keys`
+/// entry stays: a redial reoccupies `HOME_RELAY`. Returns whether this
+/// call is the one that retired it, i.e. whether the caller owns arming
+/// the redial.
+fn retire_home(shared: &Shared, conn: &Rc<RelayConn>) -> bool {
+    if !is_pool_current(shared, HOME_RELAY, conn) {
+        return false;
+    }
+    shared.borrow_mut().relay_pool.remove(&HOME_RELAY);
+    conn.close();
+    true
+}
+
+/// The delay before the redial attempt numbered `attempt` (zero-based):
+/// `REDIAL_MIN_DELAY` doubled per attempt, capped at
+/// `REDIAL_MAX_DELAY`, plus up to as much again in jitter (also capped),
+/// so endpoints that lost one relay together do not redial in lockstep.
+/// A random source that refuses yields the unjittered delay.
+fn redial_delay(attempt: u32) -> Duration {
+    let base = REDIAL_MIN_DELAY
+        .checked_mul(1u32.checked_shl(attempt.min(31)).unwrap_or(u32::MAX))
+        .unwrap_or(REDIAL_MAX_DELAY)
+        .min(REDIAL_MAX_DELAY);
+    let mut bytes = [0u8; 2];
+    let spread = match getrandom::fill(&mut bytes) {
+        Ok(()) => u16::from_le_bytes(bytes) as u64,
+        Err(_) => 0,
+    };
+    let jitter = Duration::from_nanos(base.as_nanos() as u64 / u64::from(u16::MAX) * spread);
+    (base + jitter).min(REDIAL_MAX_DELAY)
+}
+
+/// The delay the next redial waits, consuming the backoff state. A home
+/// relay that had been registered at least `REDIAL_ESTABLISHED` before
+/// it failed is redialed at once and restarts the backoff; anything
+/// younger takes the next delay.
+fn next_redial_delay(attempt: &mut u32, home_since: &mut Option<Instant>) -> Duration {
+    if home_since
+        .take()
+        .is_some_and(|at| at.elapsed() >= REDIAL_ESTABLISHED)
+    {
+        *attempt = 0;
+        return Duration::ZERO;
+    }
+    let delay = redial_delay(*attempt);
+    *attempt = attempt.saturating_add(1);
+    delay
+}
+
+type RedialFuture = futures::future::LocalBoxFuture<'static, Result<RelayConn, String>>;
+
+/// One home-relay redial: wait out the backoff, then connect and
+/// authenticate.
+///
+/// The dial carries no timeout of its own, and must not: a timeout is a
+/// second future racing the dial, so every attempt drops whichever of
+/// the two loses — the in-task select-race drop [`pump`]'s doc rules
+/// out. Dropping the timer that way wedges the polyengine host, which
+/// reports it as a resumed activation whose claim is never released. A
+/// relay that accepts the socket and then stalls the handshake
+/// therefore holds this slot until the socket resolves; nothing else in
+/// the endpoint waits on it.
+async fn redial_home(
+    url: String,
+    identity: Rc<Identity>,
+    delay: Duration,
+) -> Result<RelayConn, String> {
+    if !delay.is_zero() {
+        monotonic_clock::wait_for(delay.as_nanos() as u64).await;
+    }
+    RelayConn::connect(&url, &identity).await
 }
 
 type ChannelRecvFuture =
@@ -1053,7 +1225,7 @@ fn handle_signal(shared: &Shared, via: u32, source: [u8; 32], payload: &[u8]) {
     const INBOX_CAP: usize = 64;
     let spawn_answerer = {
         let mut st = shared.borrow_mut();
-        if !st.webrtc_enabled || st.is_closed_or_dead() {
+        if !st.webrtc_enabled || st.closed {
             return;
         }
         // Claim the slot synchronously with the decision, so a second
@@ -1360,7 +1532,7 @@ impl EndpointRes {
             if let Some(key) = st.relay_keys.get(&normalized) {
                 return Ok(*key);
             }
-            if st.is_closed_or_dead() {
+            if st.closed {
                 return Err(Error::Closed);
             }
             st.relay_opening.insert(normalized.clone())
@@ -1394,7 +1566,7 @@ impl EndpointRes {
                     "a concurrent open of this relay failed".into(),
                 )));
             }
-            if st.is_closed_or_dead() {
+            if st.closed {
                 return Some(Err(Error::Closed));
             }
             if started.elapsed() > Duration::from_secs(30) {
@@ -1514,7 +1686,12 @@ impl GuestEndpoint for EndpointRes {
         shared
             .borrow_mut()
             .register_relay(&relay_url, Rc::new(relay));
-        wit_bindgen::spawn_local(pump(shared.clone(), udp.clone()));
+        wit_bindgen::spawn_local(pump(
+            shared.clone(),
+            udp.clone(),
+            relay_url.clone(),
+            identity.clone(),
+        ));
 
         Ok(Endpoint::new(EndpointRes {
             shared,
@@ -1589,7 +1766,7 @@ impl GuestEndpoint for EndpointRes {
 
         let (handle, epoch) = {
             let mut st = self.shared.borrow_mut();
-            if st.dead.is_some() || st.closed {
+            if st.closed {
                 return Err(Error::Closed);
             }
             let remote = match direct {
@@ -1676,7 +1853,7 @@ impl GuestEndpoint for EndpointRes {
                     return Some(Ok((handle, epoch)));
                 }
             }
-            if st.dead.is_some() || st.closed {
+            if st.closed {
                 return Some(Err(Error::Closed));
             }
             None

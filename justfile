@@ -82,9 +82,8 @@ polyengine-setup:
     cd host-polyengine && deno install --frozen --allow-scripts=npm:node-datachannel
 
 # The endpoint exam on the polyengine host: the endpoint component
-# runtime-linked under stock Deno — bind + identity, relay echo, WebRTC
-# upgrade, the issue #10 concurrency rows, teardown. See
-# host-polyengine/README.md.
+# runtime-linked under stock Deno — lifecycle, wires, concurrency, and
+# liveness/recovery scenarios. See host-polyengine/README.md.
 exam-polyengine: build-components polyengine-setup
     #!/usr/bin/env bash
     set -euo pipefail
