@@ -88,21 +88,35 @@ polyengine-setup:
 exam-polyengine: build-components polyengine-setup
     #!/usr/bin/env bash
     set -euo pipefail
-    # One RESOLVED polyengine version repo-wide (host-polyengine/README.md "The
-    # pin"): the exam is the natural fail-loud point, replacing the
-    # retired fetch-translator gate. host-polyengine's published manifest
-    # carries caret ranges, so specifier strings no longer pin identity;
-    # what module identity needs is that every @polyengine/* package (except
-    # @polyengine/protocol, versioned independently) RESOLVES to the same
-    # version across both deno.locks — a translator/runtime split is
-    # exactly the plan-format skew (or double-runtime ComponentException
-    # identity break) the packaged translator exists to rule out.
+    # The two-line world (A22): exactly one RESOLVED @polyengine/runtime
+    # lockstep-family version repo-wide (host-polyengine/README.md "The
+    # pin"), and separately exactly one RESOLVED @polyengine/protocol
+    # version — @polyengine/protocol is versioned independently, so its
+    # presence alongside the runtime family in the lock is NOT drift, but
+    # it must still be singular (protocol appearing at two versions would
+    # mean two incompatible host-ABI vocabularies in one graph). The exam
+    # is the natural fail-loud point, replacing the retired
+    # fetch-translator gate. host-polyengine's published manifest carries
+    # caret ranges, so specifier strings no longer pin identity; what
+    # module identity needs is that every @polyengine/{runtime,translator,
+    # wasi} package RESOLVES to the same version across both deno.locks —
+    # a translator/runtime split is exactly the plan-format skew (or
+    # double-runtime ComponentException identity break) the packaged
+    # translator exists to rule out.
     v=$(jq -r '.jsr | keys[]' host-polyengine/deno.lock \
         experiments/iroh-relay-ws/host/deno.lock \
         | grep '^@polyengine/' | grep -v '^@polyengine/protocol@' \
         | sed 's/.*@//' | sort -u)
     if [ "$(printf '%s\n' "$v" | wc -l)" != 1 ]; then
         echo "polyengine pin drift across deno.locks: $v" >&2
+        exit 1
+    fi
+    p=$(jq -r '.jsr | keys[]' host-polyengine/deno.lock \
+        experiments/iroh-relay-ws/host/deno.lock \
+        | grep '^@polyengine/protocol@' \
+        | sed 's/.*@//' | sort -u)
+    if [ "$(printf '%s\n' "$p" | wc -l)" != 1 ]; then
+        echo "@polyengine/protocol pin drift across deno.locks: $p" >&2
         exit 1
     fi
     # ...and the RESOLVED graph must agree: one embedder instance, no raw

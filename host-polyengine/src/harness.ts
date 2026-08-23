@@ -6,16 +6,17 @@
 // host's retired `iroh.Endpoint.bind(...)` driving shape over
 // `instantiate` + the polyengine embedder facade.
 //
-// MODULE-IDENTITY CONSTRAINT: polyengine's wasi package and the sibling host
-// modules import `@polyengine/runtime/embedder` by bare specifier internally;
-// this package's `deno.json` and the sibling packages' manifests all
-// carry caret constraints on one `@polyengine/runtime` minor line, so a
-// consumer's resolver dedupes them onto one module instance and
-// `instanceof ComponentException`/`Stream` holds across every boundary.
+// MODULE-IDENTITY CONSTRAINT: this package instantiates the packaged endpoint
+// component, so it still loads `@polyengine/runtime/embedder`; this
+// package's `deno.json` and every consumer graph must resolve exactly one
+// `@polyengine/runtime` version for stateful-handle interop. Vocabulary
+// (`ComponentException`, etc.) comes from `@polyengine/protocol` (A22),
+// whose copies are harmless even if a consumer resolves more than one.
 
 import { defaultTranslator } from "@polyengine/translator";
 import type { ComponentArtifacts } from "@polyengine/runtime/embedder";
-import { instantiate, ComponentException } from "@polyengine/runtime/embedder";
+import { instantiate } from "@polyengine/runtime/embedder";
+import { ComponentException } from "@polyengine/protocol";
 import { wasi } from "@polyengine/wasi";
 import { webcryptoImports } from "@polymorph/webcrypto";
 import { websocketImports } from "@polymorph/websocket";

@@ -22,7 +22,7 @@
 // Environment-portable: standard globals only; works under Deno and in
 // browsers.
 
-import { ComponentException } from "@polyengine/runtime/embedder";
+import { ComponentException } from "@polyengine/protocol";
 import { Pollable } from "@polyengine/wasi/io";
 
 // ---------------------------------------------------------------------------

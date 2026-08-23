@@ -26,7 +26,7 @@
 // extension once polyengine's wasi package grows p3 `wasi:sockets` providers
 // (polymorph-components/polyengine#4); this file is where that provider would be wired.
 
-import { ComponentException } from "@polyengine/runtime/embedder";
+import { ComponentException } from "@polyengine/protocol";
 
 /** `wasi:sockets/types@0.3.0`'s `ip-address-family` enum. */
 export type IpAddressFamily = "ipv4" | "ipv6";

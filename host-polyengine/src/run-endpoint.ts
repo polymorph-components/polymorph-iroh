@@ -74,7 +74,7 @@ async function newEndpointInstance(
     ...options,
   });
 }
-import { ComponentException } from "@polyengine/runtime/embedder";
+import { ComponentException } from "@polyengine/protocol";
 import { resetUdpCallLog, udpCallLog } from "./sockets.ts";
 import type {
   CloseInfo,
