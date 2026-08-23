@@ -54,8 +54,10 @@ guest's and is latent on every host.
 ## The pin
 
 polyengine and the sibling host modules arrive from JSR under caret
-constraints on one minor line (`jsr:@polyengine/*@^0.4.0`,
-`jsr:@polymorph/*@^0.4.0`); `deno.lock` pins the resolved versions and
+constraints on one minor line: the `@polyengine/{runtime,translator,wasi}@^0.5.0`
+lockstep family, plus `@polyengine/protocol@^0.2.2` (versioned independently
+of the lockstep family — the A22 host-ABI vocabulary line) and
+`jsr:@polymorph/*@^0.5.0`. `deno.lock` pins the resolved versions and
 carries integrity, enforced with `--frozen`. `@polyengine/translator` ships
 the translator wasm for the same commit as the runtime, so the
 plan-format coupling between runtime and translator is self-consistent
@@ -65,7 +67,8 @@ no fetch step. `minimumDependencyAge` exempts `jsr:@polyengine/*` and
 same-day releases resolve; everything else keeps the default.
 `experiments/iroh-relay-ws/host/deno.json` (the upstream-iroh spikes'
 shared config) exact-pins the same polyengine packages; the `exam-polyengine`
-recipe asserts both `deno.lock`s resolve to one polyengine version.
+recipe asserts both `deno.lock`s resolve to one `@polyengine/runtime`
+version and one `@polyengine/protocol` version.
 
 To bump: adjust the constraints (a new minor line) or just delete the
 `deno.lock` files (within the line), re-run `just polyengine-setup` and
@@ -75,16 +78,23 @@ diff.
 
 ## Module identity
 
-polyengine's wasi package and the sibling host modules import
-`@polyengine/runtime/embedder` by bare specifier internally, each resolved
-through its own package manifest. Identity rests on every manifest in
-the graph carrying a constraint the resolver can satisfy with ONE
-`@polyengine/runtime` version, so it dedupes to one
-`ComponentException`/`Stream` module instance — caret constraints on
-one minor line guarantee that; an exact pin outside every other
-manifest's range (or a raw-URL embedder module) splits the graph, and
-`instanceof ComponentException` silently stops holding across that
-boundary. Two gates in `just exam-polyengine` keep it true: the lock check
-(this repo's `deno.lock`s resolve to one polyengine version) and
-`scripts/polyengine-identity-gate.ts` (the RESOLVED run-endpoint graph
-carries exactly one `@polyengine/runtime` and no raw URLs).
+This package instantiates the packaged endpoint component, so it still
+loads `@polyengine/runtime/embedder` by bare specifier, resolved through
+its own `deno.json`. As of A22 (polyengine 0.5.0), `@polyengine/wasi` is
+protocol-only internally and the sibling host modules
+(`@polymorph/{webcrypto,websocket,webrtc-datachannels}@^0.5.0`) depend
+only on `@polyengine/protocol` — neither couples to `@polyengine/runtime`
+at all, so they no longer contribute to embedder identity. The remaining
+true constraint: any consumer graph that loads the embedder in more than
+one config (this package does; the `experiments/iroh-relay-ws/host`
+config does too, for the upstream-iroh spikes) must still resolve to ONE
+`@polyengine/runtime` version — a component instantiated under one
+embedder copy is refused by another (stateful handles are not portable
+across runtime copies). `@polyengine/protocol` copies are harmless by
+construction: its error classes and handle-vocabulary types are brand-
+checked, not `instanceof`-checked, across copies. Two gates in
+`just exam-polyengine` keep this true: the lock check (this repo's
+`deno.lock`s resolve to one `@polyengine/runtime` version and one
+`@polyengine/protocol` version) and `scripts/polyengine-identity-gate.ts`
+(the RESOLVED run-endpoint graph carries exactly one
+`@polyengine/runtime` and no raw URLs).

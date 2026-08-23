@@ -2,7 +2,7 @@
 // `ComponentException<{kind, value?}>` payloads (the sibling host modules
 // throw these).
 
-import { ComponentException } from "@polyengine/runtime/embedder";
+import { ComponentException } from "@polyengine/protocol";
 
 export function describeErr(err: unknown): string {
   if (err instanceof ComponentException) {

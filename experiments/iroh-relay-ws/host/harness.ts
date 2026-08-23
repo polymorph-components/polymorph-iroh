@@ -6,11 +6,13 @@
 // globals only.
 //
 // MODULE-IDENTITY CONSTRAINT (host-polyengine/README.md "Module identity"):
-// polyengine's wasi package and this package import `@polyengine/runtime/embedder`
-// by bare specifier; the `deno.json` next to this file maps that
-// specifier once for the whole module graph, so there is exactly one
-// `ComponentException` module instance and `instanceof` holds across every
-// boundary — including the branded errors sockets.ts throws.
+// this application config maps `@polyengine/runtime/embedder` ONCE for the
+// whole experiment module graph, so there is exactly one embedder instance
+// and stateful handles (component instantiation, streams minted through it)
+// stay portable across every boundary here. `ComponentException` and other
+// vocabulary (thrown by sockets.ts) come from `@polyengine/protocol`
+// instead (A22) — its copies are brand-checked, not `instanceof`-checked,
+// so they don't depend on this constraint.
 
 import type { ComponentArtifacts } from "@polyengine/runtime/embedder";
 import { artifactsFromEnvelope, instantiate } from "@polyengine/runtime/embedder";
