@@ -6,14 +6,30 @@
 //! path browsers use, since the TLS keying-material shortcut needs an
 //! exporter the WebSocket surface does not carry. The challenge signature
 //! is produced by the webcrypto identity handle.
+//!
+//! Liveness is a mechanism here and a policy elsewhere: the connection
+//! stamps every inbound frame and offers [`RelayConn::probe_step`] and
+//! [`RelayConn::send_ping`], while the cadence and the deadline belong
+//! to the caller driving the steps.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use crate::bindings::polymorph::websocket::connections::Websocket;
 use crate::bindings::polymorph::websocket::types::Message as WsMessage;
 use crate::crypto::sign::Identity;
 use crate::relay_frames::{self as frames, tag};
+
+/// The verdict of one [`RelayConn::probe_step`].
+pub enum ProbeStep {
+    /// The wire is either busy or waiting on an in-flight ping.
+    Healthy,
+    /// The wire is quiet; send a ping carrying this payload.
+    Ping([u8; 8]),
+    /// A ping went unanswered past its deadline; the wire is dead.
+    Dead,
+}
 
 /// A connected, authenticated relay client.
 pub struct RelayConn {
@@ -21,6 +37,12 @@ pub struct RelayConn {
     /// Datagrams decoded but not yet delivered (a batch frame carries
     /// several).
     pending: RefCell<VecDeque<frames::Datagram>>,
+    /// When this connection last saw any inbound websocket frame.
+    last_inbound: Cell<Instant>,
+    /// When the outstanding liveness ping was sent, if one is unanswered.
+    probe: Cell<Option<Instant>>,
+    /// The liveness ping payload counter.
+    probe_seq: Cell<u64>,
 }
 
 impl RelayConn {
@@ -72,6 +94,9 @@ impl RelayConn {
         Ok(Self {
             ws,
             pending: RefCell::new(VecDeque::new()),
+            last_inbound: Cell::new(Instant::now()),
+            probe: Cell::new(None),
+            probe_seq: Cell::new(0),
         })
     }
 
@@ -91,7 +116,14 @@ impl RelayConn {
             if let Some(datagram) = self.pending.borrow_mut().pop_front() {
                 return Ok(datagram);
             }
-            let frame = match self.ws.receive().await {
+            let received = self.ws.receive().await;
+            // Any frame at all proves the relay's software end is alive,
+            // whatever it carries; the liveness stamp precedes the tag
+            // dispatch and the frames the happy path ignores.
+            if received.is_ok() {
+                self.last_inbound.set(Instant::now());
+            }
+            let frame = match received {
                 Ok(WsMessage::Binary(frame)) => frame,
                 Ok(WsMessage::String(_)) => continue,
                 Err(e) => return Err(format!("relay: {e:?}")),
@@ -120,6 +152,45 @@ impl RelayConn {
                 _ => {}
             }
         }
+    }
+
+    /// One liveness-probe step at `now`: answered probes are cleared (any
+    /// frame since the ping counts — upstream matches pong payloads, but for
+    /// detecting a silent wire any inbound frame has the same power, so this
+    /// client deliberately does not correlate pongs or track RTT), a wire
+    /// quiet for `quiet_after` gets a ping, and a probe unanswered for
+    /// `deadline` declares the wire dead.
+    pub fn probe_step(&self, now: Instant, quiet_after: Duration, deadline: Duration) -> ProbeStep {
+        if let Some(sent) = self.probe.get() {
+            if self.last_inbound.get() > sent {
+                self.probe.set(None);
+            } else if now.saturating_duration_since(sent) >= deadline {
+                // The probe stays set: a dead verdict is terminal for
+                // this connection, and repeating it is harmless.
+                return ProbeStep::Dead;
+            } else {
+                return ProbeStep::Healthy;
+            }
+        }
+        if now.saturating_duration_since(self.last_inbound.get()) >= quiet_after {
+            self.probe.set(Some(now));
+            let seq = self.probe_seq.get().wrapping_add(1);
+            self.probe_seq.set(seq);
+            ProbeStep::Ping(seq.to_le_bytes())
+        } else {
+            ProbeStep::Healthy
+        }
+    }
+
+    /// Send one liveness ping carrying `payload`. The payload is a
+    /// counter, not a correlator: [`RelayConn::probe_step`] accepts any
+    /// inbound frame as the answer.
+    pub async fn send_ping(&self, payload: &[u8; 8]) -> Result<(), String> {
+        let frame = frames::encode_ping(payload);
+        self.ws
+            .send(WsMessage::Binary(frame))
+            .await
+            .map_err(|e| format!("relay ping: {e:?}"))
     }
 
     /// Initiate the connection's close (idempotent); a pending

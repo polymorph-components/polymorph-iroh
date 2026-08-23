@@ -145,6 +145,25 @@ const DIAL_TIMEOUT_SLACK_HIGH_MS = 10_000;
 // out and the redial slot survived it.
 const STALL_REDIAL_WAIT_MS = 35_000;
 
+// The guest's liveness-probe budgets for a silent-but-open relay wire
+// (issue #96): after this much inbound silence a relay PING frame goes
+// out (endpoint_impl.rs RELAY_PING_INTERVAL), and if nothing arrives
+// within the timeout after that the wire is declared dead
+// (endpoint_impl.rs RELAY_PING_TIMEOUT).
+const RELAY_PING_INTERVAL_MS = 15_000;
+const RELAY_PING_TIMEOUT_MS = 5_000;
+
+// How long the mute-relay probe waits for its first observed PING: the
+// wire goes quiet at the handshake, so the bound is the probe interval
+// plus generous slack for process/test scheduling.
+const MUTE_PING_WAIT_MS = RELAY_PING_INTERVAL_MS + 10_000;
+
+// How long the mute-relay probe waits, after the first PING, for the
+// redial to land back on the stub: the unanswered ping declares the
+// wire dead at RELAY_PING_TIMEOUT, and the connection lived >= 10s so
+// the redial is immediate.
+const MUTE_REACCEPT_WAIT_MS = RELAY_PING_TIMEOUT_MS + 10_000;
+
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
  * budget is per-shape because the shapes lose the race at very different
@@ -930,6 +949,184 @@ async function stallProbeOnce(control: RelayControl): Promise<StallReport> {
   }
 }
 
+// --- the mute-relay probe (issue #96) ----------------------------------------
+
+/** A relay stub that completes the handshake and then falls silent: it
+ * never replies to anything, including the client's liveness PING —
+ * the shape that made a silent-but-open wire indistinguishable from a
+ * healthy one before issue #96's fix. The stub SKIPS AUTHENTICATION
+ * entirely: it is a test fixture, never a relay implementation. */
+interface MuteRelay {
+  accepts(): number;
+  pings(): number;
+  close(): Promise<void>;
+}
+
+/**
+ * One relay frame is one BINARY websocket message, first byte a
+ * QUIC-varint frame tag (single byte for tags < 64) — mirrored from
+ * `core/src/relay_frames.rs`. SERVER_CONFIRMS_AUTH = 2, PING = 9. The
+ * client's connect loop accepts an immediate confirms-auth (no
+ * challenge required) and ignores its payload, so the stub's entire
+ * handshake is sending the single byte 0x02 after the upgrade.
+ */
+async function startMuteRelay(port: number): Promise<MuteRelay> {
+  let accepts = 0;
+  let pings = 0;
+  const sockets = new Set<WebSocket>();
+
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port, onListen: () => {} },
+    (req) => {
+      if (new URL(req.url).pathname !== "/relay") {
+        return new Response("not found", { status: 404 });
+      }
+      // The client offers ["iroh-relay-v2", "iroh-relay-v1"] and its
+      // connect guard requires the server to select one of them.
+      const offered = req.headers.get("sec-websocket-protocol") ?? "";
+      const protocol = offered.split(",")[0]?.trim();
+      const { socket, response } = Deno.upgradeWebSocket(req, { protocol });
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        accepts++;
+        sockets.add(socket);
+        socket.send(new Uint8Array([2])); // SERVER_CONFIRMS_AUTH
+      };
+      socket.onmessage = (ev) => {
+        // Never reply — that is the whole point of this stub.
+        const data = ev.data as ArrayBuffer;
+        const tag = new Uint8Array(data)[0];
+        if (tag === 9) pings++; // PING
+      };
+      socket.onclose = () => sockets.delete(socket);
+      return response;
+    },
+  );
+
+  return {
+    accepts: () => accepts,
+    pings: () => pings,
+    close: async () => {
+      for (const s of sockets) {
+        try {
+          s.close();
+        } catch { /* already closed */ }
+      }
+      try {
+        await server.shutdown();
+      } catch { /* already shut down */ }
+    },
+  };
+}
+
+interface MuteReport {
+  readonly wentDown: boolean;
+  readonly pings: number;
+  readonly pingMs: number;
+  readonly accepts: number;
+  readonly reacceptMs: number;
+  readonly echoed: string;
+}
+
+/**
+ * One mute-relay probe (issue #96): a relay that completes the
+ * handshake and then goes silent must be detected by the client's own
+ * liveness PING, retired, and redialed — with no help from a socket
+ * error, since the stub's connection never closes on its own. Gathers
+ * data only — every assertion runs once, after the retry loop, against
+ * the returned report (scenarios 7/8's shape).
+ */
+async function muteProbeOnce(control: RelayControl): Promise<MuteReport> {
+  const server = await newEndpointInstance({ label: "mute-server" });
+  let sep: Endpoint | undefined;
+  let cep: Endpoint | undefined;
+  let stub: MuteRelay | undefined;
+  try {
+    sep = await deadline(
+      bindEndpoint(server, { alpns: [ALPN], relayUrl: control.url(), webrtc: false }),
+      30_000,
+      "server bind",
+    );
+    const serverId = await sep.id();
+
+    await control.stop();
+    let wentDown = false;
+    for (let i = 0; i < 100; i++) {
+      if (!await portListening(RELAY_PORT)) {
+        wentDown = true;
+        break;
+      }
+      await settle(100);
+    }
+
+    // The endpoint's home redial will connect to this stub and complete
+    // the mute handshake (accept #1).
+    stub = await startMuteRelay(RELAY_PORT);
+    const stubStarted = performance.now();
+
+    let pingMs = -1;
+    const pingDeadline = stubStarted + MUTE_PING_WAIT_MS;
+    while (performance.now() < pingDeadline) {
+      if (stub.pings() >= 1) {
+        pingMs = performance.now() - stubStarted;
+        break;
+      }
+      await settle(200);
+    }
+
+    let reacceptMs = -1;
+    const reacceptStarted = performance.now();
+    const reacceptDeadline = reacceptStarted + MUTE_REACCEPT_WAIT_MS;
+    while (performance.now() < reacceptDeadline) {
+      if (stub.accepts() >= 2) {
+        reacceptMs = performance.now() - reacceptStarted;
+        break;
+      }
+      await settle(200);
+    }
+
+    const pings = stub.pings();
+    const accepts = stub.accepts();
+
+    // Swap back: the endpoint's live stub connection errors when the
+    // stub closes (the existing error path), and the next redial
+    // reaches the real relay.
+    await stub.close();
+    stub = undefined;
+    await control.start();
+
+    // Recovery: a fresh client instance, dialed against the now-real
+    // relay, proves the endpoint is still usable.
+    const client = await newEndpointInstance({ label: "mute-client" });
+    cep = await deadline(
+      bindEndpoint(client, { alpns: [ALPN], relayUrl: control.url(), webrtc: false }),
+      30_000,
+      "client bind",
+    );
+    const addrs: TransportAddr[] = [{ kind: "relay", value: control.url() }];
+    const conn = await deadline(
+      cep.connect({ endpointId: serverId, addrs }, ALPN),
+      60_000,
+      "recovery connect",
+    );
+    const sconn = await deadline(sep.accept(), 60_000, "recovery accept");
+    const echoed = await echoRoundtrip(conn, sconn, "post-mute recovery echo");
+    await conn.close(CLOSE_CODE, CLOSE_REASON);
+    await deadline(conn.waitClosed(), 30_000, "client wait-closed");
+
+    return { wentDown, pings, pingMs, accepts, reacceptMs, echoed };
+  } catch (err) {
+    // Any throw must still leave the real relay running for later
+    // scenarios, mirroring scenarios 7/8's restore-on-failure care.
+    if (stub) await stub.close();
+    if (!await portListening(RELAY_PORT)) await control.start();
+    throw err;
+  } finally {
+    if (cep) await closeQuietly(cep, "client close after mute probe");
+    if (sep) await closeQuietly(sep, "server close after mute probe");
+  }
+}
+
 async function main(): Promise<number> {
   installPanicWatchdog();
   console.log("iroh endpoint exam (polyengine / stock Deno)");
@@ -1410,9 +1607,65 @@ async function main(): Promise<number> {
     );
 
     // -- 9 -------------------------------------------------------------------
+    await scenario(
+      9,
+      "mute relay: a silent-but-open home wire is detected, retired, and redialed (issue #96)",
+      async (v) => {
+        if (!relay.owned) {
+          v.status = "BLOCKED";
+          v.detail = "the relay was pre-existing and adopted, so this run cannot stop it";
+          return;
+        }
+        let r: MuteReport | undefined;
+        let lastError = "";
+        // Two attempts only, as scenarios 7/8: each costs the full
+        // ping/timeout budget in wall time.
+        const attempts = 2;
+        for (let attempt = 1; attempt <= attempts && !r; attempt++) {
+          takeGuestPanics();
+          try {
+            r = await muteProbeOnce(relayControl);
+          } catch (err) {
+            lastError = describeError(err);
+            console.log(`  attempt ${attempt}/${attempts} failed: ${lastError}`);
+            if (!await portListening(RELAY_PORT)) await relayControl.start();
+            await settle(100);
+          }
+        }
+        if (!r) throw new Error(`no attempt completed; last: ${lastError}`);
+        await settle();
+        const panics = takeGuestPanics();
+
+        check(v, r.wentDown, `the relay stopped accepting on ${RELAY_PORT}`);
+        check(
+          v,
+          r.pings >= 1,
+          `the client's liveness probe reached the mute wire: ${r.pings} PING(s) ` +
+            `(first at ${r.pingMs.toFixed(0)} ms)`,
+        );
+        check(
+          v,
+          r.accepts >= 2,
+          `the dead wire was retired and redialed while the stub stayed OPEN — ` +
+            `${r.accepts} accept(s), no socket error was available, the liveness ` +
+            `probe alone drove it (redial at ${r.reacceptMs.toFixed(0)} ms after the ping)`,
+        );
+        check(v, r.echoed === MESSAGE.toUpperCase(), "an echo completed after recovery");
+        check(
+          v,
+          panics.length === 0,
+          `no guest trap across the mute-relay detection (${panics.join("; ")})`,
+        );
+        v.detail = `ping at ${r.pingMs.toFixed(0)} ms, redial at ${
+          r.reacceptMs.toFixed(0)
+        } ms after it, recovery echo OK`;
+      },
+    );
+
+    // -- 10 ------------------------------------------------------------------
     // Last by necessity: this scenario stops the relay every later
     // scenario would need.
-    await scenario(9, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(10, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),

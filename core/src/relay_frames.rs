@@ -102,6 +102,15 @@ pub fn encode_pong(payload: &[u8; 8]) -> Vec<u8> {
     frame
 }
 
+/// Encode a `ping` frame carrying `payload`; the relay answers with a
+/// `pong` echoing it.
+pub fn encode_ping(payload: &[u8; 8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(1 + 8);
+    frame.push(tag::PING as u8);
+    frame.extend_from_slice(payload);
+    frame
+}
+
 /// Decode a `relay-to-client-datagram` or `-batch` payload (the bytes
 /// after the frame type) into individual datagrams.
 pub fn decode_relay_datagrams(payload: &[u8], batch: bool) -> Option<Vec<Datagram>> {
@@ -213,7 +222,9 @@ mod tests {
             vec![0x0a, 42, 42, 42, 42, 42, 42, 42, 42]
         );
         let ping = [0x09, 42, 42, 42, 42, 42, 42, 42, 42];
-        let (tag, payload) = split_tag(&ping).unwrap();
+        let encoded = encode_ping(&[42; 8]);
+        assert_eq!(encoded, ping.to_vec());
+        let (tag, payload) = split_tag(&encoded).unwrap();
         assert_eq!(tag, tag::PING);
         assert_eq!(payload, [42; 8]);
     }
