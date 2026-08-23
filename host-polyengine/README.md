@@ -33,7 +33,8 @@ pinned module graph + the `node-datachannel` addon
 `src/run-endpoint.ts` — the endpoint lifecycle (bind + identity through
 idempotent teardown), the relay and WebRTC wires, the issue #10
 concurrency rows, and the liveness/recovery rows (idle survival, relay
-outage, stalling-relay dial deadlines). Each scenario names its
+outage, stalling-relay dial deadlines, mute-relay detection). Each
+scenario names its
 assertions where it lives; the exam's
 summary line is the inventory.
 

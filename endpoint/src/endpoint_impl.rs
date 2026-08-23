@@ -64,7 +64,7 @@ use crate::identity::IdentityRes;
 use crate::udp::UdpWire;
 use crate::webrtc::{self, ChannelWire, SIGNAL_PREFIX};
 use crate::Component;
-use iroh_endpoint_core::relay::RelayConn;
+use iroh_endpoint_core::relay::{ProbeStep, RelayConn};
 use wit_bindgen::rt::async_support::{FutureReader, StreamReader};
 
 /// The pump's tick: noq's deadlines, the waiters' deadline re-check
@@ -244,6 +244,19 @@ const REDIAL_ESTABLISHED: Duration = Duration::from_secs(10);
 /// well under `ensure_relay`'s 30s claim-wait, so a stalled dial
 /// resolves its waiters before they give up.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How much inbound silence on a relay wire elicits a liveness ping
+/// (issue #96): matches upstream's ping cadence (iroh-1.0.3
+/// src/socket/transports/relay/actor.rs, PING_INTERVAL, reset on any
+/// inbound message), chosen there as half QUIC's default 30s
+/// max-idle-timeout so a dead home wire is caught with time to recover.
+const RELAY_PING_INTERVAL: Duration = Duration::from_secs(15);
+
+/// How long an unanswered liveness ping is allowed before the wire is
+/// declared dead: upstream's maximum pong bound (iroh-relay-1.0.3
+/// src/ping_tracker.rs, PING_TIMEOUT). Upstream shrinks the bound by
+/// measured RTT; this client tracks no RTT and uses the cap.
+const RELAY_PING_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct ChannelEntry {
     wire: Rc<ChannelWire>,
@@ -812,6 +825,12 @@ fn on_event(
 /// redial; the pump ends only on close, never on a wire failure.
 /// `home_url` and `identity` are what a redial re-runs `RelayConn::connect`
 /// with.
+///
+/// The tick also probes relay liveness: a wire quiet for
+/// [`RELAY_PING_INTERVAL`] is pinged, and a ping unanswered for
+/// [`RELAY_PING_TIMEOUT`] retires its connection — the home relay into
+/// the redial, a foreign relay out of the pool — so a relay that goes
+/// silent without erroring the websocket is still detected.
 async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>, home_url: String, identity: Rc<Identity>) {
     let mut udp_recv = pin!(udp_receive(udp.clone()).fuse());
     let mut tick = pin!(monotonic_clock::wait_for(TICK_NS).fuse());
@@ -1051,6 +1070,42 @@ async fn pump(shared: Shared, udp: Option<Rc<UdpWire>>, home_url: String, identi
                 tick.set(monotonic_clock::wait_for(TICK_NS).fuse());
                 shared.borrow_mut().handle_timeouts();
                 force_wake = true;
+                // Liveness sweep (issue #96). The pool is copied out of
+                // one short borrow, and the steps below take none across
+                // an await — the sends are detached, not awaited here.
+                let pool: Vec<(u32, Rc<RelayConn>)> = shared
+                    .borrow()
+                    .relay_pool
+                    .iter()
+                    .map(|(key, conn)| (*key, conn.clone()))
+                    .collect();
+                for (key, conn) in pool {
+                    match conn.probe_step(Instant::now(), RELAY_PING_INTERVAL, RELAY_PING_TIMEOUT) {
+                        ProbeStep::Ping(data) => {
+                            // Detached so a backpressured wire cannot pin
+                            // the pump: a ping that never leaves still
+                            // reaches the pong deadline, which is the
+                            // correct verdict for that wire either way.
+                            wit_bindgen::spawn_local(async move {
+                                let _ = conn.send_ping(&data).await;
+                            });
+                        }
+                        ProbeStep::Dead if key == HOME_RELAY => {
+                            if retire_home(&shared, &conn) {
+                                let delay = next_redial_delay(&mut redial_attempt, &mut home_since);
+                                redial = redial_home(home_url.clone(), identity.clone(), delay)
+                                    .boxed_local()
+                                    .fuse();
+                            }
+                        }
+                        ProbeStep::Dead => {
+                            if let Some(conn) = shared.borrow_mut().retire_relay(key) {
+                                conn.close();
+                            }
+                        }
+                        ProbeStep::Healthy => {}
+                    }
+                }
             }
         }
     }
