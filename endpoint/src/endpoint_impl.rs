@@ -17,10 +17,11 @@
 //! timeout, signaling deadline) is observed, and how stale a missed
 //! wake edge can go.
 //!
-//! An in-flight import is a component-model subtask and is always
-//! awaited to completion, never dropped mid-flight (the teardown
-//! discipline; the kick future is guest-local, so re-creating it each
-//! select turn cancels nothing). All of it runs on the component-model
+//! An in-flight import is a component-model subtask; dropping one is a
+//! `subtask.cancel`, which the minimum hosts (polyengine 0.5.1 / A23,
+//! wasmtime) settle promptly, so a select race may drop its loser (the
+//! kick future is guest-local, so re-creating it each select turn
+//! cancels nothing). All of it runs on the component-model
 //! async ABI's single cooperative thread: the `RefCell` borrows never
 //! cross an await, and a fired waker resumes its task through the
 //! scheduler, never synchronously.
@@ -234,6 +235,15 @@ const REDIAL_MAX_DELAY: Duration = Duration::from_secs(5);
 /// that cannot be reached: an older connection is redialed at once and
 /// restarts the backoff, a younger one consumes the next delay.
 const REDIAL_ESTABLISHED: Duration = Duration::from_secs(10);
+
+/// Deadline on every relay dial (`bind`, `ensure-relay`, the home
+/// redial): a relay that accepts the socket and then stalls the
+/// handshake fails the dial instead of pinning it (issue #93). The
+/// value matches upstream's relay connect timeout (iroh-1.0.3
+/// src/socket/transports/relay/actor.rs, CONNECT_TIMEOUT) and sits
+/// well under `ensure_relay`'s 30s claim-wait, so a stalled dial
+/// resolves its waiters before they give up.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct ChannelEntry {
     wire: Rc<ChannelWire>,
@@ -783,19 +793,20 @@ fn on_event(
 /// The endpoint's I/O task: relayed datagrams in and out, noq's timers,
 /// the flush after every kick, and the home relay's redial. The two
 /// long-lived import futures stay pinned across iterations and are
-/// resolved before the task returns (an in-flight import is a
-/// component-model subtask; jco traps on cancelling one — the teardown
-/// discipline). Channel receives live in a persistent set with the same
-/// discipline: closing every channel resolves them before the task
-/// returns. The redial slot is the exception: an in-flight relay dial is
-/// dropped at teardown rather than awaited.
+/// resolved before the task returns; channel receives live in a
+/// persistent set with the same discipline: closing every channel
+/// resolves them before the task returns. The redial slot is the
+/// exception: an in-flight relay dial is dropped at teardown rather
+/// than awaited.
 ///
-/// The two kinds of drop are not the same hazard. Dropping an in-flight
-/// import to settle a select race INSIDE a live task wedges the host,
-/// which sees an activation that never parks, finishes, or traps (see
-/// [`redial_home`]). Dropping one as the whole task ends is the
-/// host-driven cancellation `ensure_relay` already takes when its call
-/// is cancelled, and is sound.
+/// Dropping an in-flight import future is a component-model
+/// `subtask.cancel`, and is safe both mid-task (settling a select
+/// race, as [`dial_relay`]'s deadline does) and at task end. The
+/// minimum host is part of that claim: polyengine settles the cancel
+/// as a prompt discard only from 0.5.1 (A23; earlier versions wedge
+/// the store, polyengine#239). The resolve-before-return discipline
+/// above is retained as teardown hygiene, not a correctness
+/// requirement.
 ///
 /// A failed home relay retires its connection from the pool and arms a
 /// redial; the pump ends only on close, never on a wire failure.
@@ -1172,17 +1183,36 @@ fn next_redial_delay(attempt: &mut u32, home_since: &mut Option<Instant>) -> Dur
 
 type RedialFuture = futures::future::LocalBoxFuture<'static, Result<RelayConn, String>>;
 
+/// A failed [`dial_relay`]: the deadline, or the dial's own failure.
+enum DialError {
+    /// The dial did not resolve within [`DIAL_TIMEOUT`].
+    TimedOut,
+    /// The dial resolved with a failure.
+    Failed(String),
+}
+
+/// One relay dial bounded by [`DIAL_TIMEOUT`]: `RelayConn::connect`
+/// raced against the clock, the loser's in-flight future dropped.
+/// The drop is a component-model `subtask.cancel`; the minimum hosts
+/// (polyengine 0.5.1 / A23, wasmtime) settle it promptly — a discard
+/// or a real cancellation. On a discard the host-side connect may
+/// still run to its natural end; only delivery is renounced.
+async fn dial_relay(url: &str, identity: &Identity) -> Result<RelayConn, DialError> {
+    let mut dial = pin!(RelayConn::connect(url, identity).fuse());
+    let mut timer = pin!(monotonic_clock::wait_for(DIAL_TIMEOUT.as_nanos() as u64).fuse());
+    select_biased! {
+        opened = dial => opened.map_err(DialError::Failed),
+        _ = timer => Err(DialError::TimedOut),
+    }
+}
+
 /// One home-relay redial: wait out the backoff, then connect and
 /// authenticate.
 ///
-/// The dial carries no timeout of its own, and must not: a timeout is a
-/// second future racing the dial, so every attempt drops whichever of
-/// the two loses — the in-task select-race drop [`pump`]'s doc rules
-/// out. Dropping the timer that way wedges the polyengine host, which
-/// reports it as a resumed activation whose claim is never released. A
-/// relay that accepts the socket and then stalls the handshake
-/// therefore holds this slot until the socket resolves; nothing else in
-/// the endpoint waits on it.
+/// The dial is bounded by [`DIAL_TIMEOUT`] (via [`dial_relay`]): a
+/// relay that accepts the socket and then stalls the handshake fails
+/// the attempt, and the pump's error arm rearms the next redial with
+/// backoff (issue #93).
 async fn redial_home(
     url: String,
     identity: Rc<Identity>,
@@ -1191,7 +1221,10 @@ async fn redial_home(
     if !delay.is_zero() {
         monotonic_clock::wait_for(delay.as_nanos() as u64).await;
     }
-    RelayConn::connect(&url, &identity).await
+    dial_relay(&url, &identity).await.map_err(|e| match e {
+        DialError::TimedOut => "relay dial timed out".to_string(),
+        DialError::Failed(e) => e,
+    })
 }
 
 type ChannelRecvFuture =
@@ -1545,7 +1578,7 @@ impl EndpointRes {
                 normalized: normalized.clone(),
                 armed: true,
             };
-            let opened = RelayConn::connect(url, &self.identity).await;
+            let opened = dial_relay(url, &self.identity).await;
             claim.armed = false;
             let mut st = self.shared.borrow_mut();
             st.relay_opening.remove(&normalized);
@@ -1553,7 +1586,10 @@ impl EndpointRes {
             st.wake_waiters();
             return match opened {
                 Ok(conn) => Ok(st.register_relay(url, Rc::new(conn))),
-                Err(e) => Err(Error::ConnectFailed(format!("relay {url}: {e}"))),
+                Err(DialError::TimedOut) => {
+                    Err(Error::TimedOut(format!("relay {url}: dial timed out")))
+                }
+                Err(DialError::Failed(e)) => Err(Error::ConnectFailed(format!("relay {url}: {e}"))),
             };
         }
         let started = Instant::now();
@@ -1645,9 +1681,12 @@ impl GuestEndpoint for EndpointRes {
             ));
         }
 
-        let relay = RelayConn::connect(&relay_url, &identity)
+        let relay = dial_relay(&relay_url, &identity)
             .await
-            .map_err(Error::ConnectFailed)?;
+            .map_err(|e| match e {
+                DialError::TimedOut => Error::TimedOut("relay dial timed out".into()),
+                DialError::Failed(e) => Error::ConnectFailed(e),
+            })?;
 
         let mut reset_key = [0u8; 32];
         getrandom::fill(&mut reset_key).map_err(other)?;

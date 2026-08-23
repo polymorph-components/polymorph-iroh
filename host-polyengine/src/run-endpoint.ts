@@ -132,6 +132,19 @@ const OUTAGE_RECOVERY_MS = 20_000;
 // so teardown happens with a relay dial pending.
 const OUTAGE_TEARDOWN_MS = 2_000;
 
+// The guest's relay dial deadline (endpoint_impl.rs DIAL_TIMEOUT).
+// The stall assertions bound BOTH sides: a dial that fails much
+// earlier did not time out (it errored), much later did not have a
+// working deadline.
+const DIAL_TIMEOUT_MS = 10_000;
+const DIAL_TIMEOUT_SLACK_LOW_MS = 500;
+const DIAL_TIMEOUT_SLACK_HIGH_MS = 10_000;
+
+// How long the home-relay redial probe (issue #93) waits for the pump to
+// arm a second dial against the stalling stub, proving the first timed
+// out and the redial slot survived it.
+const STALL_REDIAL_WAIT_MS = 35_000;
+
 /**
  * Bounded retries around the RefCell borrow hazard (see the header). The
  * budget is per-shape because the shapes lose the race at very different
@@ -496,6 +509,8 @@ interface RelayControl {
   url(): string;
   stop(): Promise<void>;
   start(): Promise<void>;
+  /** Whether this run owns the relay process (can actually stop it). */
+  owned(): boolean;
 }
 
 interface OutageReport {
@@ -633,6 +648,288 @@ async function outageProbeBody(
   };
 }
 
+// --- the stalling-relay probe (issue #93) ------------------------------------
+
+/** A relay stub that accepts TCP and never completes the relay handshake:
+ * the guest's dial sits reading a socket that never writes back. */
+interface StallStub {
+  readonly url: string;
+  accepts(): number;
+  close(): Promise<void>;
+}
+
+/**
+ * Start a stall stub on `port` (0 for ephemeral). Every accepted
+ * connection is drained and held open, never written to — the shape
+ * that pinned `bind`/`ensure_relay`/the home-relay redial before issue
+ * #93's dial deadline.
+ */
+async function startStallStub(port: number): Promise<StallStub> {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port });
+  const addr = listener.addr as Deno.NetAddr;
+  let accepted = 0;
+  let closing = false;
+  const conns = new Set<Deno.Conn>();
+
+  const acceptLoop = (async () => {
+    try {
+      for await (const conn of listener) {
+        accepted++;
+        conns.add(conn);
+        drain(conn);
+      }
+    } catch {
+      // The listener closed out from under the accept loop; expected on
+      // shutdown.
+    }
+  })();
+
+  function drain(conn: Deno.Conn): void {
+    (async () => {
+      const buf = new Uint8Array(4096);
+      try {
+        for (;;) {
+          const n = await conn.read(buf);
+          if (n === null) break;
+        }
+      } catch {
+        // The socket was closed by the peer or by our own shutdown;
+        // this stub never writes, so nothing else can go wrong here.
+      } finally {
+        conns.delete(conn);
+      }
+    })();
+  }
+
+  return {
+    url: `http://127.0.0.1:${addr.port}`,
+    accepts: () => accepted,
+    close: async () => {
+      if (closing) return;
+      closing = true;
+      try {
+        listener.close();
+      } catch { /* already closed */ }
+      for (const conn of conns) {
+        try {
+          conn.close();
+        } catch { /* already closed */ }
+      }
+      await acceptLoop;
+    },
+  };
+}
+
+/** The outcome of one relay dial: `kind` is the WIT error variant (or
+ * "resolved" if the dial succeeded), `elapsedMs` how long it took. Never
+ * throws itself — a real dial hang is caught by the caller's `deadline`. */
+interface DialOutcome {
+  readonly kind: string;
+  readonly elapsedMs: number;
+}
+
+async function awaitDialOutcome(p: Promise<unknown>): Promise<DialOutcome> {
+  const t0 = performance.now();
+  let kind: string;
+  try {
+    await p;
+    kind = "resolved";
+  } catch (err) {
+    if (err instanceof ComponentException) {
+      const payload = err.payload as { kind?: string } | undefined;
+      kind = payload?.kind ?? "unknown";
+    } else {
+      kind = describeError(err);
+    }
+  }
+  return { kind, elapsedMs: performance.now() - t0 };
+}
+
+/** Whether an elapsed dial time falls inside the deadline's slack window:
+ * much earlier means the dial errored rather than timing out; much later
+ * means the deadline did not actually bound it. */
+function inDialTimeoutWindow(ms: number): boolean {
+  return ms >= DIAL_TIMEOUT_MS - DIAL_TIMEOUT_SLACK_LOW_MS &&
+    ms <= DIAL_TIMEOUT_MS + DIAL_TIMEOUT_SLACK_HIGH_MS;
+}
+
+interface StallLegAReport {
+  readonly kind: string;
+  readonly elapsedMs: number;
+  readonly accepts: number;
+}
+
+interface StallLegBReport {
+  readonly firstKind: string;
+  readonly firstMs: number;
+  readonly secondKind: string;
+  readonly secondMs: number;
+  readonly accepts: number;
+}
+
+interface StallLegCReport {
+  readonly wentDown: boolean;
+  readonly accepts: number;
+  readonly echoed: string;
+}
+
+interface StallReport {
+  readonly legA: StallLegAReport;
+  readonly legB: StallLegBReport;
+  /** `undefined` when the relay was adopted rather than owned (scenario 7's
+   * shape): this run cannot stop the real relay, so the redial leg cannot
+   * run. */
+  readonly legC: StallLegCReport | undefined;
+}
+
+/**
+ * One stalling-relay probe (issue #93): a relay that accepts TCP and never
+ * completes the handshake must fail every dial that reaches it at the
+ * guest's dial deadline, never hang it, and never pin the redial slot it
+ * occupies. Gathers data only — every assertion runs once, after the
+ * retry loop, against the returned report (scenario 7's shape: a `check()`
+ * inside a retried body would poison the verdict on a transient first
+ * attempt).
+ */
+async function stallProbeOnce(control: RelayControl): Promise<StallReport> {
+  // Leg A: bind against a stall stub directly.
+  const legA = await (async (): Promise<StallLegAReport> => {
+    const stub = await startStallStub(0);
+    try {
+      const inst = await newEndpointInstance({ label: "stall-bind" });
+      const outcome = await deadline(
+        awaitDialOutcome(
+          bindEndpoint(inst, { alpns: [ALPN], relayUrl: stub.url, webrtc: false }),
+        ),
+        30_000,
+        "leg A bind",
+      );
+      return { kind: outcome.kind, elapsedMs: outcome.elapsedMs, accepts: stub.accepts() };
+    } finally {
+      await stub.close();
+    }
+  })();
+
+  // Leg B: a foreign-relay open through connect, and its claim-release.
+  // Any throw here still owns two bound endpoints, whose pumps would
+  // otherwise redial through every later scenario.
+  const legB = await (async (): Promise<StallLegBReport> => {
+    const stub = await startStallStub(0);
+    const server = await newEndpointInstance({ label: "stall-b-server" });
+    const client = await newEndpointInstance({ label: "stall-b-client" });
+    let sep: Endpoint | undefined;
+    let cep: Endpoint | undefined;
+    try {
+      const bindOptions = { alpns: [ALPN], relayUrl: control.url(), webrtc: false };
+      sep = await deadline(bindEndpoint(server, bindOptions), 30_000, "server bind");
+      cep = await deadline(bindEndpoint(client, bindOptions), 30_000, "client bind");
+      const serverId = await sep.id();
+      const addrs: TransportAddr[] = [{ kind: "relay", value: stub.url }];
+
+      const first = await deadline(
+        awaitDialOutcome(cep.connect({ endpointId: serverId, addrs }, ALPN)),
+        30_000,
+        "leg B first connect",
+      );
+      // The claim-release assertion: before issue #93's fix, a second
+      // dialer against the same foreign relay waited out a 30s claim
+      // instead of dialing, because the first dial never released it.
+      const second = await deadline(
+        awaitDialOutcome(cep.connect({ endpointId: serverId, addrs }, ALPN)),
+        30_000,
+        "leg B second connect",
+      );
+      return {
+        firstKind: first.kind,
+        firstMs: first.elapsedMs,
+        secondKind: second.kind,
+        secondMs: second.elapsedMs,
+        accepts: stub.accepts(),
+      };
+    } finally {
+      if (cep) await closeQuietly(cep, "client close after leg B");
+      if (sep) await closeQuietly(sep, "server close after leg B");
+      await stub.close();
+    }
+  })();
+
+  // Leg C: the home-relay redial keeps redialing through a stall, and the
+  // endpoint recovers once a working relay returns.
+  if (!control.owned()) {
+    return { legA, legB, legC: undefined };
+  }
+
+  const server = await newEndpointInstance({ label: "stall-c-server" });
+  let sep: Endpoint | undefined;
+  try {
+    const legC = await (async (): Promise<StallLegCReport> => {
+      sep = await deadline(
+        bindEndpoint(server, { alpns: [ALPN], relayUrl: control.url(), webrtc: false }),
+        30_000,
+        "server bind",
+      );
+      const serverId = await sep.id();
+
+      await control.stop();
+      let wentDown = false;
+      for (let i = 0; i < 100; i++) {
+        if (!await portListening(RELAY_PORT)) {
+          wentDown = true;
+          break;
+        }
+        await settle(100);
+      }
+
+      const stub = await startStallStub(RELAY_PORT);
+      let accepts = 0;
+      try {
+        const started = performance.now();
+        while (performance.now() - started < STALL_REDIAL_WAIT_MS) {
+          accepts = stub.accepts();
+          if (accepts >= 2) break;
+          await settle(200);
+        }
+        accepts = stub.accepts();
+      } finally {
+        await stub.close();
+      }
+
+      await control.start();
+
+      const client = await newEndpointInstance({ label: "stall-c-client" });
+      let cep: Endpoint | undefined;
+      try {
+        cep = await deadline(
+          bindEndpoint(client, { alpns: [ALPN], relayUrl: control.url(), webrtc: false }),
+          30_000,
+          "client bind",
+        );
+        const addrs: TransportAddr[] = [{ kind: "relay", value: control.url() }];
+        const conn = await deadline(
+          cep.connect({ endpointId: serverId, addrs }, ALPN),
+          60_000,
+          "recovery connect",
+        );
+        const sconn = await deadline(sep.accept(), 60_000, "recovery accept");
+        const echoed = await echoRoundtrip(conn, sconn, "post-stall recovery echo");
+        await conn.close(CLOSE_CODE, CLOSE_REASON);
+        await deadline(conn.waitClosed(), 30_000, "client wait-closed");
+        return { wentDown, accepts, echoed };
+      } finally {
+        if (cep) await closeQuietly(cep, "client close after leg C");
+      }
+    })();
+    if (sep) await closeQuietly(sep, "server close after leg C");
+    return { legA, legB, legC };
+  } catch (err) {
+    // Any throw in leg C must still leave the real relay running for the
+    // teardown scenario, mirroring scenario 7's restore-on-failure care.
+    if (!await portListening(RELAY_PORT)) await control.start();
+    if (sep) await closeQuietly(sep, "server close after a failed leg C");
+    throw err;
+  }
+}
+
 async function main(): Promise<number> {
   installPanicWatchdog();
   console.log("iroh endpoint exam (polyengine / stock Deno)");
@@ -646,6 +943,7 @@ async function main(): Promise<number> {
     start: async () => {
       relay = await startRelay();
     },
+    owned: () => relay.owned,
   };
   try {
     // -- 1 -------------------------------------------------------------------
@@ -1018,9 +1316,103 @@ async function main(): Promise<number> {
     );
 
     // -- 8 -------------------------------------------------------------------
+    await scenario(
+      8,
+      "stalling relay: dials fail at the deadline instead of pinning (issue #93)",
+      async (v) => {
+        let r: StallReport | undefined;
+        let lastError = "";
+        // Two attempts only, as scenario 7: each costs the full stall
+        // budget in wall time, and legs B/C run handshakes that rarely
+        // lose the RefCell race (see the header).
+        const attempts = 2;
+        for (let attempt = 1; attempt <= attempts && !r; attempt++) {
+          takeGuestPanics();
+          try {
+            r = await stallProbeOnce(relayControl);
+          } catch (err) {
+            lastError = describeError(err);
+            console.log(`  attempt ${attempt}/${attempts} failed: ${lastError}`);
+            if (relay.owned && !await portListening(RELAY_PORT)) await relayControl.start();
+            await settle(100);
+          }
+        }
+        if (!r) throw new Error(`no attempt completed; last: ${lastError}`);
+        await settle();
+        const panics = takeGuestPanics();
+
+        // Every assertion runs exactly once, against the attempt that
+        // completed — never inside the retried body (a check-false in a
+        // discarded attempt must not poison a later clean one).
+        check(
+          v,
+          r.legA.kind === "timed-out",
+          `leg A: bind against a stalling relay rejected ${r.legA.kind} ` +
+            `after ${r.legA.elapsedMs.toFixed(0)} ms`,
+        );
+        check(
+          v,
+          inDialTimeoutWindow(r.legA.elapsedMs),
+          `leg A: elapsed ${r.legA.elapsedMs.toFixed(0)} ms is within ` +
+            `[${DIAL_TIMEOUT_MS - DIAL_TIMEOUT_SLACK_LOW_MS}, ` +
+            `${DIAL_TIMEOUT_MS + DIAL_TIMEOUT_SLACK_HIGH_MS}] ms of DIAL_TIMEOUT_MS`,
+        );
+        check(v, r.legA.accepts >= 1, `leg A: the stub accepted ${r.legA.accepts} dial(s)`);
+
+        check(
+          v,
+          r.legB.firstKind === "timed-out",
+          `leg B: the first connect through a stalling foreign relay rejected ` +
+            `${r.legB.firstKind} after ${r.legB.firstMs.toFixed(0)} ms`,
+        );
+        check(v, inDialTimeoutWindow(r.legB.firstMs), `leg B: first elapsed within the window`);
+        check(
+          v,
+          r.legB.secondKind === "timed-out",
+          `leg B: a second connect through the same stalling relay also rejected ` +
+            `${r.legB.secondKind} after ${r.legB.secondMs.toFixed(0)} ms — the first dial ` +
+            `released its claim on the relay instead of pinning it`,
+        );
+        check(v, inDialTimeoutWindow(r.legB.secondMs), `leg B: second elapsed within the window`);
+        check(
+          v,
+          r.legB.accepts >= 2,
+          `leg B: the stub accepted ${r.legB.accepts} dial(s) (both connects reached it)`,
+        );
+
+        if (r.legC) {
+          check(v, r.legC.wentDown, `leg C: the real relay stopped accepting on ${RELAY_PORT}`);
+          check(
+            v,
+            r.legC.accepts >= 2,
+            `leg C: the home-relay redial armed a second dial against the stalling stub ` +
+              `within ${STALL_REDIAL_WAIT_MS} ms (accepts: ${r.legC.accepts})`,
+          );
+          check(
+            v,
+            r.legC.echoed === MESSAGE.toUpperCase(),
+            "leg C: a fresh connect + echo succeeded after the real relay returned " +
+              "(the redial slot survived the stalled dials)",
+          );
+        } else {
+          v.notes.push("leg C skipped: the relay was pre-existing and adopted, ran only A+B");
+        }
+
+        check(
+          v,
+          panics.length === 0,
+          `no guest trap across the stalled-dial drops (${panics.join("; ")})`,
+        );
+
+        v.detail = `bind timed out at ${r.legA.elapsedMs.toFixed(0)} ms; leg B claim released; ` +
+          (r.legC ? `redial re-armed and recovery echo OK` : `leg C skipped (adopted relay)`);
+      },
+    );
+
+    // -- 9 -------------------------------------------------------------------
     // Last by necessity: this scenario stops the relay every later
     // scenario would need.
-    await scenario(8, "teardown: close + wait-closed, relay reaped", async (v) => {
+    await scenario(9, "teardown: close + wait-closed, relay reaped", async (v) => {
       const inst = await newEndpointInstance({ label: "teardown" });
       const ep = await deadline(
         bindEndpoint(inst, { alpns: [ALPN], relayUrl: relay.url, webrtc: false }),
