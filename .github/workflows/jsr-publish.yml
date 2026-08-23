@@ -3,15 +3,20 @@
 # module, and publish.
 #
 # Auth is GitHub Actions OIDC: the package's GitHub-repository link on
-# jsr.io authorizes runs from this repository — no tokens. Dispatch after
-# a release whose manifest version is not yet on JSR; JSR rejects
-# duplicate versions, so a re-run is a no-op-by-failure. --allow-dirty is
-# for the generated (gitignored) asset module only.
+# jsr.io authorizes runs from this repository — no tokens. Dispatch when
+# the manifest version is not yet on JSR: the workflow publishes, then
+# creates the vX.Y.Z tag + release at this run's commit if one doesn't
+# already exist (a pre-created release is left alone; a bare tag without
+# a release fails loudly). JSR rejects duplicate versions, so a re-run
+# is a no-op-by-failure; if publish succeeded but release creation
+# failed, create the release manually at this run's commit before
+# re-dispatching. --allow-dirty is for the generated (gitignored) asset
+# module only.
 name: jsr-publish
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   id-token: write
 jobs:
   publish:
@@ -31,3 +36,24 @@ jobs:
           deno run --allow-read=target --allow-write=host-polyengine/src/endpoint_component.ts scripts/embed-endpoint-component.ts
       - run: deno publish --allow-dirty
         working-directory: host-polyengine
+      - name: Create the vX.Y.Z release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r .version host-polyengine/deno.json)"
+          tag="v${version}"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists — nothing to create"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "tag $tag exists without a release — reconcile manually: gh release create on an existing tag would bind the release to that tag's old commit, not $GITHUB_SHA" >&2
+            exit 1
+          fi
+          notes="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n\n%s\n\n%s\n' \
+            "Release \`${version}\` at ${GITHUB_SHA}." \
+            "Published to JSR: https://jsr.io/@polymorph/iroh@${version} — release created by jsr-publish; expand the notes with \`gh release edit ${tag}\` as needed." \
+            "Still 0.x/unstable, but caret-honest: releases within a minor line stay compatible; breaking changes bump the minor." \
+            >"$notes"
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "${GITHUB_REPOSITORY#*/} $tag" --notes-file "$notes"
