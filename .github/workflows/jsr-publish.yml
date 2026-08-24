@@ -7,11 +7,16 @@
 # the manifest version is not yet on JSR: the workflow publishes, then
 # creates the vX.Y.Z tag + release at this run's commit if one doesn't
 # already exist (a pre-created release is left alone; a bare tag without
-# a release fails loudly). JSR rejects duplicate versions, so a re-run
-# is a no-op-by-failure; if publish succeeded but release creation
-# failed, create the release manually at this run's commit before
-# re-dispatching. --allow-dirty is for the generated (gitignored) asset
-# module only.
+# a release fails loudly) and attaches iroh_endpoint.wasm + SHA256SUMS
+# from this run's build — the same bytes the published package embeds,
+# and necessarily so, because a release created with github.token emits
+# no `release: published` event, so release-assets.yml cannot fire for
+# it (that workflow covers backfill and human-published releases). JSR
+# rejects duplicate versions, so a re-run is a no-op-by-failure; if
+# publish succeeded but release creation failed, create the release
+# manually at this run's commit and dispatch release-assets for it
+# before re-dispatching. --allow-dirty is for the generated (gitignored)
+# asset module only.
 name: jsr-publish
 on:
   workflow_dispatch:
@@ -36,7 +41,7 @@ jobs:
           deno run --allow-read=target --allow-write=host-polyengine/src/endpoint_component.ts scripts/embed-endpoint-component.ts
       - run: deno publish --allow-dirty
         working-directory: host-polyengine
-      - name: Create the vX.Y.Z release
+      - name: Create the vX.Y.Z release with the component assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -57,3 +62,7 @@ jobs:
             "Still 0.x/unstable, but caret-honest: releases within a minor line stay compatible; breaking changes bump the minor." \
             >"$notes"
           gh release create "$tag" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "${GITHUB_REPOSITORY#*/} $tag" --notes-file "$notes"
+          cp target/wasm32-wasip2/release/iroh_endpoint.wasm .
+          sha256sum iroh_endpoint.wasm > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" iroh_endpoint.wasm SHA256SUMS --clobber
