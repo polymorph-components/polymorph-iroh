@@ -4,12 +4,15 @@
 # repo and building from source — the same consumer story polyengine's
 # releases give its translator shim.
 #
-# Runs automatically when a release is published; `workflow_dispatch`
-# with a tag backfills an existing release (e.g. one cut before this
-# workflow existed). The build is the exact recipe jsr-publish.yml embeds
-# into @polymorph/iroh, at the release's own tag, on the toolchain
-# rust-toolchain.toml pins there. `--clobber` makes re-runs converge on
-# the latest build instead of failing on the existing asset.
+# jsr-publish.yml attaches these assets itself to the releases it
+# creates (github.token-created releases emit no `release: published`
+# event, so this workflow cannot fire for them). This workflow covers
+# the rest: it runs automatically when a release is published by hand,
+# and `workflow_dispatch` with a tag backfills an existing release. The
+# build is the exact recipe jsr-publish.yml embeds into @polymorph/iroh,
+# at the release's own tag, on the toolchain rust-toolchain.toml pins
+# there. `--clobber` makes re-runs converge on the latest build instead
+# of failing on the existing asset.
 name: release-assets
 on:
   release:
