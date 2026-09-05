@@ -9,14 +9,14 @@
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
   },
   "imports": {
-    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.5.1/embedder",
-    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.5.1/shim",
-    "@polyengine/protocol": "jsr:@polyengine/protocol@0.2.3",
-    "@polyengine/translator": "jsr:@polyengine/translator@0.5.1",
-    "@polyengine/wasi": "jsr:@polyengine/wasi@0.5.1",
-    "@polyengine/wasi/io": "jsr:@polyengine/wasi@0.5.1/io",
-    "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@0.5.0",
-    "@polymorph/websocket": "jsr:@polymorph/websocket@0.5.0"
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.6.3/embedder",
+    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.6.3/shim",
+    "@polyengine/protocol": "jsr:@polyengine/protocol@0.3.1",
+    "@polyengine/translator": "jsr:@polyengine/translator@0.6.3",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@0.6.3",
+    "@polyengine/wasi/io": "jsr:@polyengine/wasi@0.6.3/io",
+    "@polymorph/webrtc-datachannels": "jsr:@polymorph/webrtc-datachannels@0.6.0",
+    "@polymorph/websocket": "jsr:@polymorph/websocket@0.6.0"
   },
   "tasks": {
     "check": "deno check ."

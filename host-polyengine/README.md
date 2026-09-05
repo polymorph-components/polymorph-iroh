@@ -47,13 +47,14 @@ guest's and is latent on every host.
 ## The pin
 
 polyengine and the sibling host modules arrive from JSR under caret
-constraints on one minor line: the `@polyengine/{runtime,translator,wasi}@^0.5.1`
-lockstep family (0.5.1 is a floor, not a convenience: the endpoint's
-dial timeouts drop in-flight import futures, which polyengine handles as
-a prompt discard only from 0.5.1 — A23; under 0.5.0 the drop wedges the
-store, polyengine#239), plus `@polyengine/protocol@^0.2.2` (versioned independently
+constraints on one minor line: the `@polyengine/{runtime,translator,wasi}@^0.6.3`
+lockstep family (the line's floor has been ≥0.5.1 since A23, not a
+convenience: the endpoint's dial timeouts drop in-flight import futures,
+which polyengine handles as a prompt discard only from 0.5.1 — A23; under
+0.5.0 the drop wedges the store, polyengine#239), plus
+`@polyengine/protocol@^0.3.1` (versioned independently
 of the lockstep family — the A22 host-ABI vocabulary line) and
-`jsr:@polymorph/*@^0.5.0`. `deno.lock` pins the resolved versions and
+`jsr:@polymorph/*@^0.6.0`. `deno.lock` pins the resolved versions and
 carries integrity, enforced with `--frozen`. `@polyengine/translator` ships
 the translator wasm for the same commit as the runtime, so the
 plan-format coupling between runtime and translator is self-consistent

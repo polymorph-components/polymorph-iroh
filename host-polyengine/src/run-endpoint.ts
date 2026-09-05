@@ -63,14 +63,12 @@ import {
 } from "./repo.ts";
 
 // The exam always runs THIS TREE's freshly built component (repo.ts reads
-// it from target/), never the packaged embed, and forwards the
-// EXAM_GUEST_LOGS env knob the harness no longer reads ambiently.
+// it from target/), never the packaged embed.
 async function newEndpointInstance(
   options: EndpointInstanceOptions,
 ): Promise<EndpointInstance> {
   return await packageEndpointInstance({
     componentBytes: await endpointComponentBytes(),
-    guestLogPassthrough: Deno.env.get("EXAM_GUEST_LOGS") === "1",
     ...options,
   });
 }
