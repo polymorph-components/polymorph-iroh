@@ -95,11 +95,6 @@ export interface EndpointInstanceOptions {
   readonly env?: Record<string, string>;
   /** Component bytes to run instead of the packaged endpoint build. */
   readonly componentBytes?: Uint8Array;
-  /**
-   * Mirror the guest's stdout/stderr to the console as it runs. The
-   * captured text is available either way via `stdout()`/`stderr()`.
-   */
-  readonly guestLogPassthrough?: boolean;
 }
 
 export interface EndpointInstance {
@@ -127,7 +122,6 @@ export async function newEndpointInstance(
     cli: {
       args: [`iroh-endpoint-${options.label}`],
       env: { ...options.env },
-      passthrough: options.guestLogPassthrough ?? false,
     },
   });
   const imports = {
