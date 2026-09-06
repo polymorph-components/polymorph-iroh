@@ -241,7 +241,7 @@ streams as resources — over three wires behind one surface: the relay
 via `wasi:sockets`, and WebRTC data channels as a background upgrade
 (a relay-dialed connection moves onto the channel when it opens;
 `connection.path` reports the move). Upstream interop is proven both
-ways over UDP against iroh v1.0.3, and against n0's production relay
+ways over UDP against iroh v1.1.0, and against n0's production relay
 infrastructure over wss. `endpoint-demo/` is the first consumer,
 composed via `wac plug` and driven by
 `host-wasmtime/src/bin/endpoint-demo.rs`. Internally: one detached pump

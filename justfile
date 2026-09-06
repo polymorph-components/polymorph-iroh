@@ -136,9 +136,9 @@ bench: build
 interop-prod: build
     ./scripts/interop-prod.sh
 
-# The upstream-iroh-over-relay spike (issue #14): the unmodified iroh
-# crate (upstream main + the wasi-enablement patch branches, from the
-# lann/iroh and lann/net-tools polymorph-iroh branches) as a wasip2
+# The upstream-iroh-over-relay spike (issue #14): the upstream iroh
+# crate (the release + the wasi-enablement patch branches, from the
+# lannbot/iroh and lannbot/net-tools polymorph-iroh branches) as a wasip2
 # component, runtime-linked under polyengine on stock Deno — relay-only
 # bootstrap over the polymorph-websocket sibling's polyengine module, then
 # live migration onto a WebRTC data channel through the synthetic-address

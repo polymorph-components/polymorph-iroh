@@ -18,19 +18,16 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Same wasi enablement patches as the iroh-relay-ws spike, from the
-# lann/iroh and lann/net-tools `polymorph-iroh` branches (see that
+# lannbot/iroh and lannbot/net-tools `polymorph-iroh` branches (see that
 # Cargo.toml for the full rationale). iroh-blobs depends on crates-io
 # iroh, so the substitution happens on the crates-io side; the branch's
 # path deps pull the patched iroh-relay and iroh-dns along, and
 # iroh-base is patched to the same branch so iroh and iroh-blobs share
 # one copy of its types.
 [patch.crates-io]
-iroh = { git = "https://github.com/lann/iroh.git", branch = "polymorph-iroh" }
-iroh-base = { git = "https://github.com/lann/iroh.git", branch = "polymorph-iroh" }
-noq = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
-noq-proto = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
-noq-udp = { git = "https://github.com/n0-computer/noq.git", rev = "f1ae90533aad86942b7fdc6562744006268989b3" }
-netwatch = { git = "https://github.com/lann/net-tools.git", branch = "polymorph-iroh" }
+iroh = { git = "https://github.com/lannbot/iroh.git", rev = "b7895560883b2f9a1539843337f4deb9b976f1c3" }
+iroh-base = { git = "https://github.com/lannbot/iroh.git", rev = "b7895560883b2f9a1539843337f4deb9b976f1c3" }
+netwatch = { git = "https://github.com/lannbot/net-tools.git", rev = "17c98b368a42055da3f9e11be58f7f25382e5252" }
 
 [profile.release]
 lto = true
