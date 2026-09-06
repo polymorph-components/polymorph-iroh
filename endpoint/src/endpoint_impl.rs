@@ -239,21 +239,21 @@ const REDIAL_ESTABLISHED: Duration = Duration::from_secs(10);
 /// Deadline on every relay dial (`bind`, `ensure-relay`, the home
 /// redial): a relay that accepts the socket and then stalls the
 /// handshake fails the dial instead of pinning it (issue #93). The
-/// value matches upstream's relay connect timeout (iroh-1.0.3
+/// value matches upstream's relay connect timeout (iroh-1.1.0
 /// src/socket/transports/relay/actor.rs, CONNECT_TIMEOUT) and sits
 /// well under `ensure_relay`'s 30s claim-wait, so a stalled dial
 /// resolves its waiters before they give up.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How much inbound silence on a relay wire elicits a liveness ping
-/// (issue #96): matches upstream's ping cadence (iroh-1.0.3
+/// (issue #96): matches upstream's ping cadence (iroh-1.1.0
 /// src/socket/transports/relay/actor.rs, PING_INTERVAL, reset on any
 /// inbound message), chosen there as half QUIC's default 30s
 /// max-idle-timeout so a dead home wire is caught with time to recover.
 const RELAY_PING_INTERVAL: Duration = Duration::from_secs(15);
 
 /// How long an unanswered liveness ping is allowed before the wire is
-/// declared dead: upstream's maximum pong bound (iroh-relay-1.0.3
+/// declared dead: upstream's maximum pong bound (iroh-relay-1.1.0
 /// src/ping_tracker.rs, PING_TIMEOUT). Upstream shrinks the bound by
 /// measured RTT; this client tracks no RTT and uses the cap.
 const RELAY_PING_TIMEOUT: Duration = Duration::from_secs(5);

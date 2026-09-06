@@ -1384,8 +1384,8 @@ dependencies = [
 
 [[package]]
 name = "iroh"
-version = "1.0.3"
-source = "git+https://github.com/lann/iroh.git?branch=polymorph-iroh#e52993efe22b367bcaf0e822d5c7fc16996b5af8"
+version = "1.1.0"
+source = "git+https://github.com/lannbot/iroh.git?rev=b7895560883b2f9a1539843337f4deb9b976f1c3#b7895560883b2f9a1539843337f4deb9b976f1c3"
 dependencies = [
  "backon",
  "blake3",
@@ -1433,8 +1433,8 @@ dependencies = [
 
 [[package]]
 name = "iroh-base"
-version = "1.0.3"
-source = "git+https://github.com/lann/iroh.git?branch=polymorph-iroh#e52993efe22b367bcaf0e822d5c7fc16996b5af8"
+version = "1.1.0"
+source = "git+https://github.com/lannbot/iroh.git?rev=b7895560883b2f9a1539843337f4deb9b976f1c3#b7895560883b2f9a1539843337f4deb9b976f1c3"
 dependencies = [
  "curve25519-dalek",
  "data-encoding",
@@ -1489,8 +1489,8 @@ dependencies = [
 
 [[package]]
 name = "iroh-dns"
-version = "1.0.3"
-source = "git+https://github.com/lann/iroh.git?branch=polymorph-iroh#e52993efe22b367bcaf0e822d5c7fc16996b5af8"
+version = "1.1.0"
+source = "git+https://github.com/lannbot/iroh.git?rev=b7895560883b2f9a1539843337f4deb9b976f1c3#b7895560883b2f9a1539843337f4deb9b976f1c3"
 dependencies = [
  "arc-swap",
  "cfg_aliases",
@@ -1552,8 +1552,8 @@ dependencies = [
 
 [[package]]
 name = "iroh-relay"
-version = "1.0.3"
-source = "git+https://github.com/lann/iroh.git?branch=polymorph-iroh#e52993efe22b367bcaf0e822d5c7fc16996b5af8"
+version = "1.1.0"
+source = "git+https://github.com/lannbot/iroh.git?rev=b7895560883b2f9a1539843337f4deb9b976f1c3#b7895560883b2f9a1539843337f4deb9b976f1c3"
 dependencies = [
  "blake3",
  "bytes",
@@ -1937,13 +1937,37 @@ dependencies = [
  "libc",
  "mac-addr",
  "ndk-context",
- "netlink-packet-core",
- "netlink-packet-route",
- "netlink-sys",
+ "netlink-packet-core 0.8.2",
+ "netlink-packet-route 0.31.0",
+ "netlink-sys 0.8.8",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-wlan",
  "objc2-foundation",
+ "objc2-system-configuration",
+ "once_cell",
+ "plist",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "netdev"
+version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4db4135b187ddae3b6813c4f9d9ac9d5181859fa6a08b4e006c63a130974ed62"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "dlopen2",
+ "ipnet",
+ "jni 0.21.1",
+ "libc",
+ "mac-addr",
+ "ndk-context",
+ "netlink-packet-core 0.9.0",
+ "netlink-packet-route 0.33.0",
+ "netlink-sys 0.9.0",
+ "objc2-core-foundation",
  "objc2-system-configuration",
  "once_cell",
  "plist",
@@ -1960,6 +1984,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "netlink-packet-core"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d6e2daf9a8c2e21302714706860a0e6be02e03d17294ecc66b354ea7d4059dd"
+
+[[package]]
 name = "netlink-packet-route"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1968,7 +1998,20 @@ dependencies = [
  "bitflags",
  "libc",
  "log",
- "netlink-packet-core",
+ "netlink-packet-core 0.8.2",
+]
+
+[[package]]
+name = "netlink-packet-route"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59d48ffc8b73a506e1ff0878528c72668f2bfbc3d875b6be890a96be5d0d5576"
+dependencies = [
+ "bitflags",
+ "libc",
+ "log",
+ "netlink-packet-core 0.9.0",
+ "zerocopy",
 ]
 
 [[package]]
@@ -1981,8 +2024,8 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "netlink-packet-core",
- "netlink-sys",
+ "netlink-packet-core 0.8.2",
+ "netlink-sys 0.8.8",
  "thiserror 2.0.19",
 ]
 
@@ -2000,9 +2043,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "netlink-sys"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c99d38e00b420df49e940fe0826e667c3dad82ac68eb4c2bbf754c1c14a83a10"
+dependencies = [
+ "bytes",
+ "libc",
+ "log",
+]
+
+[[package]]
 name = "netwatch"
-version = "0.19.1"
-source = "git+https://github.com/lann/net-tools.git?branch=polymorph-iroh#e877e799bb71112ffaa1aa20de6270162b4d4445"
+version = "0.19.3"
+source = "git+https://github.com/lannbot/net-tools.git?rev=17c98b368a42055da3f9e11be58f7f25382e5252#17c98b368a42055da3f9e11be58f7f25382e5252"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2014,11 +2068,12 @@ dependencies = [
  "n0-error",
  "n0-future",
  "n0-watcher",
- "netdev",
- "netlink-packet-core",
- "netlink-packet-route",
+ "netdev 0.45.0",
+ "netdev 0.46.2",
+ "netlink-packet-core 0.8.2",
+ "netlink-packet-route 0.31.0",
  "netlink-proto",
- "netlink-sys",
+ "netlink-sys 0.8.8",
  "noq-udp",
  "objc2-core-foundation",
  "objc2-system-configuration",
@@ -2037,8 +2092,9 @@ dependencies = [
 
 [[package]]
 name = "noq"
-version = "1.1.0"
-source = "git+https://github.com/n0-computer/noq.git?rev=f1ae90533aad86942b7fdc6562744006268989b3#f1ae90533aad86942b7fdc6562744006268989b3"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1e6c57353d26be91a242f0ec96073066c4481a03f6be874daafb18902394515"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -2058,8 +2114,9 @@ dependencies = [
 
 [[package]]
 name = "noq-proto"
-version = "1.1.0"
-source = "git+https://github.com/n0-computer/noq.git?rev=f1ae90533aad86942b7fdc6562744006268989b3#f1ae90533aad86942b7fdc6562744006268989b3"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a46813e306c29c4f86357b6ffa39a8e1c97bb274b9a296a19a56d62e4111225"
 dependencies = [
  "aes-gcm",
  "bytes",
@@ -2084,8 +2141,9 @@ dependencies = [
 
 [[package]]
 name = "noq-udp"
-version = "1.1.0"
-source = "git+https://github.com/n0-computer/noq.git?rev=f1ae90533aad86942b7fdc6562744006268989b3#f1ae90533aad86942b7fdc6562744006268989b3"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b56d621ed2c1773b5356ab39cc68c819f8d0103f7493d8661c4a5f5f8ea55f40"
 dependencies = [
  "cfg_aliases",
  "libc",
@@ -4120,6 +4178,26 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "synstructure",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

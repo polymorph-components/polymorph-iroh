@@ -8,7 +8,7 @@ publish.workspace = true
 # The upstream implementation under test. The pin is co-pinned with the
 # `iroh-relay` binary scripts/setup.sh installs — the two must move
 # together.
-iroh = "=1.0.3"
+iroh = "=1.1.0"
 
 bytes = "1"
 anyhow = "1"

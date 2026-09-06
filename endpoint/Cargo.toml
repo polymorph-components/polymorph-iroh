@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 iroh-endpoint-core = { path = "../core" }
 polymorph-tls-quic.workspace = true
-noq-proto = { version = "=1.1.0", default-features = false }
+noq-proto = { version = "=1.2.0", default-features = false }
 rustls = { version = "=0.23.43", default-features = false, features = ["std", "custom-provider"] }
 getrandom = "0.4"
 bytes = "1"

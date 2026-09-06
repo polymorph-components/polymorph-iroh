@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 WASM_TOOLS_VERSION="${WASM_TOOLS_VERSION:-1.247.0}"
 JUST_VERSION="${JUST_VERSION:-1.54.0}"
 WAC_VERSION="${WAC_VERSION:-0.10.1}"
-IROH_RELAY_VERSION="${IROH_RELAY_VERSION:-1.0.3}"
+IROH_RELAY_VERSION="${IROH_RELAY_VERSION:-1.1.0}"
 
 log() { printf '\n==> %s\n' "$1"; }
 
@@ -131,7 +131,7 @@ fi
 
 log "Ensuring iroh-relay ${IROH_RELAY_VERSION} is installed"
 # Version-checked, not presence-checked: the interop gates pair this
-# binary with the `iroh` crate tools/iroh-peer pins (`=1.0.3`); the two
+# binary with the `iroh` crate tools/iroh-peer pins (`=1.1.0`); the two
 # move together. On platforms with no prebuilt release asset, binstall's
 # source fallback needs `--features server` to produce the binary:
 #   cargo install iroh-relay@<ver> --locked --features server
