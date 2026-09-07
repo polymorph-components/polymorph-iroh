@@ -151,9 +151,11 @@ interface types {
 interface identity {
     use types.{endpoint-id};
 
-    /// An endpoint identity: an Ed25519 key pair whose private half
-    /// lives behind the component's crypto import and is never present
-    /// in this component's memory.
+    /// An endpoint identity: an Ed25519 key pair. For every constructor
+    /// interface except `identity-from-seed`, the private half lives
+    /// behind the component's crypto import and is never present in this
+    /// component's memory; an identity made by `identity-from-seed`
+    /// holds its private key in the component's memory instead.
     ///
     /// An identity is valid by construction — every constructor
     /// interface validates before minting — and reusable: any number
@@ -199,6 +201,33 @@ interface identity-from-keys {
     /// not as handshake failures against every peer. Extractability is
     /// not required.
     from-keys: async func(signing: signing-key, verifying: verifying-key) -> result<identity, error>;
+}
+
+/// Identity construction from a raw Ed25519 private-key seed.
+///
+/// The private key is held in this component's memory for the
+/// identity's lifetime, and this component signs with it directly.
+/// Every other constructor interface keeps the private key behind the
+/// crypto import. Use this interface only where that trade is
+/// acceptable, for example to load a key that the embedder already
+/// holds in the clear. The interface is present only in builds that
+/// enable the `guest-ed25519-signing` feature.
+@unstable(feature = guest-ed25519-signing)
+interface identity-from-seed {
+    @unstable(feature = guest-ed25519-signing)
+    use types.{error};
+    @unstable(feature = guest-ed25519-signing)
+    use identity.{identity};
+
+    /// Mint an identity from an Ed25519 private-key seed: the 32-byte
+    /// private key of RFC 8032 section 5.1.5. The expansion of the seed
+    /// to the signing scalar happens here, so the caller supplies the
+    /// seed, not the scalar.
+    ///
+    /// `seed` must be exactly 32 bytes; any other length fails
+    /// `error.invalid-argument`. Every 32-byte value is a valid seed.
+    @unstable(feature = guest-ed25519-signing)
+    from-seed: func(seed: list<u8>) -> result<identity, error>;
 }
 
 /// The stateful endpoint surface: one identity, its connections, and
@@ -547,5 +576,7 @@ world iroh-endpoint {
     export identity;
     export identity-generate;
     export identity-from-keys;
+    @unstable(feature = guest-ed25519-signing)
+    export identity-from-seed;
     export endpoint;
 }
