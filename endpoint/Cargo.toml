@@ -8,6 +8,11 @@ description = "The polymorph:iroh endpoint component: connect/accept by endpoint
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# In-guest Ed25519 signing from a raw private-key seed: exports
+# `identity-from-seed`. See the interface's WIT docs for the trade.
+guest-ed25519-signing = ["iroh-endpoint-core/guest-ed25519-signing"]
+
 [dependencies]
 iroh-endpoint-core = { path = "../core" }
 polymorph-tls-quic.workspace = true

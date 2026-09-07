@@ -40,6 +40,7 @@ build: build-components build-hosts
 # Native tests: the crypto/framing known answers.
 test:
     cargo test -p iroh-endpoint-core
+    cargo test -p iroh-endpoint-core --features guest-ed25519-signing
 
 fmt-check:
     cargo fmt --all --check
@@ -48,9 +49,11 @@ clippy:
     cargo clippy --all-targets
     cargo clippy -p iroh-peer --all-targets
     cargo clippy -p iroh-endpoint -p iroh-endpoint-demo -p iroh-exec-model-guest --target wasm32-wasip2
+    cargo clippy -p iroh-endpoint --features guest-ed25519-signing --target wasm32-wasip2
 
 validate-wit:
     wasm-tools component wit wit/ > /dev/null
+    wasm-tools component wit wit/ --all-features > /dev/null
     wasm-tools component wit core/wit/ > /dev/null
     wasm-tools component wit endpoint-demo/wit/ > /dev/null
     wasm-tools component wit experiments/exec-model/wit/ > /dev/null

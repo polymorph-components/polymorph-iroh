@@ -25,29 +25,42 @@ mod udp;
 mod webrtc;
 
 pub(crate) mod bindings {
-    wit_bindgen::generate!({
-        path: "../wit",
-        world: "iroh-endpoint",
-        generate_all,
-        // The websocket interfaces are bound once in iroh-endpoint-core,
-        // whose relay client this component shares; webrtc's structurally
-        // equal `stream-message` is then the only stream payload generated
-        // in this crate — two in one generation collide under wit-bindgen
-        // 0.59's structural canonicalization of stream payloads.
-        //
-        // The webcrypto interfaces are bound once in polymorph-webcrypto-guest,
-        // whose newtypes wrap only that generation; `endpoint-options.identity`
-        // carries `signature` handles, so those interfaces (and their type
-        // dependencies) must resolve to the same resource types the SDK
-        // wraps.
-        with: {
-            "polymorph:websocket/types@0.1.0": iroh_endpoint_core::bindings::polymorph::websocket::types,
-            "polymorph:websocket/connections@0.1.0": iroh_endpoint_core::bindings::polymorph::websocket::connections,
-            "polymorph:webcrypto/types@0.1.0": polymorph_webcrypto_guest::bindings::types,
-            "polymorph:webcrypto/wrapping@0.1.0": polymorph_webcrypto_guest::bindings::wrapping,
-            "polymorph:webcrypto/signature@0.1.0": polymorph_webcrypto_guest::bindings::signature,
-        },
-    });
+    // `generate!` cannot read cfg, and the `@unstable` WIT feature must be
+    // named in `features:` only when the cargo feature is on; so the one
+    // shared invocation lives in a macro, expanded once per cfg arm.
+    macro_rules! bind {
+        ($($features:tt)*) => {
+            wit_bindgen::generate!({
+                path: "../wit",
+                world: "iroh-endpoint",
+                generate_all,
+                $($features)*
+                // The websocket interfaces are bound once in iroh-endpoint-core,
+                // whose relay client this component shares; webrtc's structurally
+                // equal `stream-message` is then the only stream payload generated
+                // in this crate — two in one generation collide under wit-bindgen
+                // 0.59's structural canonicalization of stream payloads.
+                //
+                // The webcrypto interfaces are bound once in polymorph-webcrypto-guest,
+                // whose newtypes wrap only that generation; `endpoint-options.identity`
+                // carries `signature` handles, so those interfaces (and their type
+                // dependencies) must resolve to the same resource types the SDK
+                // wraps.
+                with: {
+                    "polymorph:websocket/types@0.1.0": iroh_endpoint_core::bindings::polymorph::websocket::types,
+                    "polymorph:websocket/connections@0.1.0": iroh_endpoint_core::bindings::polymorph::websocket::connections,
+                    "polymorph:webcrypto/types@0.1.0": polymorph_webcrypto_guest::bindings::types,
+                    "polymorph:webcrypto/wrapping@0.1.0": polymorph_webcrypto_guest::bindings::wrapping,
+                    "polymorph:webcrypto/signature@0.1.0": polymorph_webcrypto_guest::bindings::signature,
+                },
+            });
+        };
+    }
+
+    #[cfg(feature = "guest-ed25519-signing")]
+    bind!(features: ["guest-ed25519-signing"],);
+    #[cfg(not(feature = "guest-ed25519-signing"))]
+    bind!();
 }
 
 bindings::export!(Component with_types_in bindings);
