@@ -16,8 +16,8 @@ polymorph-webcrypto-wasmtime.workspace = true
 # The `polymorph:websocket` host implementation (tokio-tungstenite behind the
 # relay connection the guest signals over).
 wasmtime-websocket.workspace = true
-wasmtime = { version = "47", features = ["component-model", "component-model-async", "async", "cranelift", "runtime"] }
-wasmtime-wasi = { version = "47", features = ["p3"] }
+wasmtime = { version = "48", features = ["component-model", "component-model-async", "async", "cranelift", "runtime"] }
+wasmtime-wasi = { version = "48", features = ["p3"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 anyhow = "1"
 env_logger = "0.11"
