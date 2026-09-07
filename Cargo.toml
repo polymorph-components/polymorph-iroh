@@ -18,10 +18,10 @@ publish = false
 [workspace.dependencies]
 polymorph-tls-profile = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
 polymorph-tls-quic = { git = "https://github.com/polymorph-components/polymorph-tls.git", rev = "ab4f88367b838f07a64ea64cfcfd5e03f494ea35" }
-polymorph-webcrypto-guest = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
-polymorph-webcrypto-wasmtime = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "422796bd4ca8450fc527415b7cc60ea8ab1b36ff" }
-wasmtime-webrtc-datachannels = { git = "https://github.com/polymorph-components/polymorph-webrtc-datachannels.git", rev = "42f76c988c3356e62abf33af6a04f1daf8f0839c" }
-wasmtime-websocket = { git = "https://github.com/polymorph-components/polymorph-websocket.git", rev = "563aa33fc214920e80a2fec6019e91a127969a7a" }
+polymorph-webcrypto-guest = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "44325359175b0f1671ae4c94a06c0c8936f98dfd" }
+polymorph-webcrypto-wasmtime = { git = "https://github.com/polymorph-components/polymorph-webcrypto.git", rev = "44325359175b0f1671ae4c94a06c0c8936f98dfd" }
+wasmtime-webrtc-datachannels = { git = "https://github.com/polymorph-components/polymorph-webrtc-datachannels.git", rev = "fe05ecfd239916225c216d920ff526ba7af4fcac" }
+wasmtime-websocket = { git = "https://github.com/polymorph-components/polymorph-websocket.git", rev = "ec3ffa27d7377f6a9939fb75c0d6ccdeb29cfa7b" }
 
 [profile.release]
 lto = true

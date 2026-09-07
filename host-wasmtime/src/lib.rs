@@ -83,9 +83,7 @@ pub fn engine() -> Result<Engine> {
 pub fn webrtc_ctx() -> WebrtcCtx {
     let mut ctx = WebrtcCtx::new();
     if std::env::var_os("WEBRTC_INCLUDE_LOOPBACK").is_some() {
-        ctx.set_setting_engine_hook(|engine| {
-            engine.set_include_loopback_candidate(true);
-        });
+        ctx.set_setting_engine_hook(|engine| engine.with_include_loopback_candidate(true));
     }
     ctx
 }
@@ -118,7 +116,10 @@ fn store_inner(engine: &Engine, network: bool) -> Store<Ctx> {
     let mut wasi = WasiCtx::builder();
     wasi.inherit_stdio().inherit_env();
     if network {
-        wasi.inherit_network();
+        // wasmtime-wasi 48 defaults AllowedNetworkUses to all-off
+        // (inherit_network only lifts the address check); the direct
+        // path opens wasi:sockets UDP.
+        wasi.inherit_network().allow_udp(true);
     }
     Store::new(
         engine,
